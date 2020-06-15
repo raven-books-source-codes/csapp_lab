@@ -186,8 +186,8 @@ int isTmax(int x) {
  */
 int allOddBits(int x) {
   int temp = 0xaa;
-  temp = temp << 8 | temp;  // 0x aaaa
-  temp = temp << 8 | temp;  // 0x aaaaaa
+  temp = temp << 8 | temp;  // 0x aa aa
+  temp = temp << 8 | temp;  // 0x aa aa aa
   temp = temp << 8 | temp;  // 0x aa aa aa aa
   return !((x & temp) ^ temp);
 }
@@ -212,17 +212,22 @@ int negate(int x) {
  *   Rating: 3
  */
 int isAsciiDigit(int x) {
-  return 2;
+  // TODO:这里的做法应该超过max ops了
+  return (!!((x + (~0x30 + 1) & 1 << 31) ^ (1 << 31)) &   // 0x30 <= x
+        !((x + (~0x39 + 1) & 1 << 31) ^ (1 << 31))) | // x < 0x39
+        !(x + (~0x39 + 1)); // x= 0x39
 }
 /* 
  * conditional - same as x ? y : z 
  *   Example: conditional(2,4,5) = 4
- *   Legal ops: ! ~ & ^ | + << >>
+ *   Legal ops: ! ~ & ^ | + <<  >>
  *   Max ops: 16
  *   Rating: 3
  */
 int conditional(int x, int y, int z) {
-  return 2;
+  int flag = !!x; // flag =1 or flag = 0
+  int negative_one = ~0x1 + 1;
+  return (~(flag + negative_one) & y) | ((flag + negative_one) & z);
 }
 /* 
  * isLessOrEqual - if x <= y  then return 1, else return 0 
