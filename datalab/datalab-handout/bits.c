@@ -259,12 +259,6 @@ int isLessOrEqual(int x, int y) {
   int result4 = (!sx & sy);
 
   return result1 | result2 | result3 | (!result4 & result1 & result2 & result3);
-
-  // int negative_y = ~y + 1;
-  // int tmin = 1 << 31;
-  // int result1 = !((x + negative_y) & (tmin) ^ (tmin)); // x < y 且 x -y 没有发生负溢出
-  // int result2 = !(x + negative_y);  // x = y
-  // int result3 = 1; // x < y 且 x-y 发生了负溢出
 }
 //4
 /* 
@@ -274,9 +268,27 @@ int isLessOrEqual(int x, int y) {
  *   Legal ops: ~ & ^ | + << >>
  *   Max ops: 12
  *   Rating: 4 
+ *   考虑0和其它数之间的区别, 0的相反数是其本身(Tmin也是)
+ *   1. 对x取相反数 ~x+1
+ *   2. x ^ ~x+1 =y 
+ *   3. 对y取反 y = ~y
+ *  
+ *   result1:
+ *   y的首位如果是0,则代表y肯定是 0或者Tmin. 此时把y>>31再+1可得.
+ *   0xxxx >> 31 = 0x0000 再+1 = 0x1
+ *   如果y的首位是1, y>>31 可得:
+ *   1xxxx >> 31 = 0xff ff ff ff 再+1 = 0x0
+ *  
+ *   result2:
+ *   现在问题就变为,如果区分0和tmin
+ *   注意到,tmin首位是1,所以用 tmin>>31 + 1一定等于0. 而 0>> 31 + 1一定等于1.
+ *   所以可区分.
  */
 int logicalNeg(int x) {
-  return 2;
+  int negative_x = ~x + 1;
+  int result1 = ((x ^ negative_x) >> 31) + 1;
+  int result2 = (x >> 31) + 1;
+  return result1 & result2;
 }
 /* howManyBits - return the minimum number of bits required to represent x in
  *             two's complement
