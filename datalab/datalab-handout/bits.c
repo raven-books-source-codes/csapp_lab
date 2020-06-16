@@ -271,7 +271,6 @@ int isLessOrEqual(int x, int y) {
  *   考虑0和其它数之间的区别, 0的相反数是其本身(Tmin也是)
  *   1. 对x取相反数 ~x+1
  *   2. x ^ ~x+1 =y 
- *   3. 对y取反 y = ~y
  *  
  *   result1:
  *   y的首位如果是0,则代表y肯定是 0或者Tmin. 此时把y>>31再+1可得.
