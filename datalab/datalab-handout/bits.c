@@ -213,9 +213,14 @@ int negate(int x) {
  */
 int isAsciiDigit(int x) {
   // TODO:这里的做法应该超过max ops了
-  return (!!((x + (~0x30 + 1) & 1 << 31) ^ (1 << 31)) &   // 0x30 <= x
-        !((x + (~0x39 + 1) & 1 << 31) ^ (1 << 31))) | // x < 0x39
-        !(x + (~0x39 + 1)); // x= 0x39
+  int tmin = 1 << 31;
+  int acsii_zero = 0x30;
+  int acsii_nine = 0x39;
+  int negative_acsii_zero = ~acsii_zero + 1;
+  int negative_acsii_nine = ~acsii_nine + 1;
+  return (!!((x + (negative_acsii_zero) & tmin) ^ tmin) & // 0x30 <= x
+          !((x + (negative_acsii_nine) & tmin) ^ tmin)) | // x < 0x39
+         !(x + (negative_acsii_nine));                    // x= 0x39
 }
 /* 
  * conditional - same as x ? y : z 
@@ -226,7 +231,7 @@ int isAsciiDigit(int x) {
  */
 int conditional(int x, int y, int z) {
   int flag = !!x; // flag =1 or flag = 0
-  int negative_one = ~0x1 + 1;
+  int negative_one = ~0x1 + 1;  // -1
   return (~(flag + negative_one) & y) | ((flag + negative_one) & z);
 }
 /* 
@@ -237,7 +242,29 @@ int conditional(int x, int y, int z) {
  *   Rating: 3
  */
 int isLessOrEqual(int x, int y) {
-  return 2;
+  int negative_y = ~y + 1;
+  int tmin = 1 << 31;
+  // 取出符号位
+  int sx = (x & tmin) >> 31;
+  int sy = (y & tmin) >> 31;
+  // x <= y
+  int x_less_eqaul_than_y = !((x + negative_y) & (tmin) ^ (tmin)) | !(x + negative_y);
+  // x < 0, y>= 0 sx = 1 sy = 0, x < y
+  int result1 = sx & !sy;
+  // x < 0 , y < 0 sx = 1, sy = 1, 且 x <= y 
+  int result2 = sx & sy & x_less_eqaul_than_y;
+  // x >=0 , y >= 0, sx =0 , sy = 0, 且 x <= y 
+  int result3 = !sx & !sy & x_less_eqaul_than_y;
+  // x >=0 , y < 0 , sx = 0, sy = 1, 这里 x > y 需要求反,并且不再其它condition中
+  int result4 = (!sx & sy);
+
+  return result1 | result2 | result3 | (!result4 & result1 & result2 & result3);
+
+  // int negative_y = ~y + 1;
+  // int tmin = 1 << 31;
+  // int result1 = !((x + negative_y) & (tmin) ^ (tmin)); // x < y 且 x -y 没有发生负溢出
+  // int result2 = !(x + negative_y);  // x = y
+  // int result3 = 1; // x < y 且 x-y 发生了负溢出
 }
 //4
 /* 
