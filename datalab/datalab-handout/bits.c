@@ -372,9 +372,43 @@ int howManyBits(int x)
  */
 unsigned float_twice(unsigned uf)
 {
-    return 2;
-}
+    // 获取exp
+    unsigned exp = 0;
+    for (unsigned i = 0; i < 8; i++)
+    {
+        exp = (exp << 1) + ((uf >> (30 - i)) & 1);
+    }
 
+    // Nan
+    unsigned Nan = 0xff;
+    if (exp == Nan)
+    {
+        return uf;
+    }
+
+    // exp == 0
+    if(exp == 0)
+    {
+        // 除符号位外,left shift即可
+        unsigned sign = uf >> 31 & 1;
+        uf = uf << 1;
+        uf = sign ? (uf | 0x80000000) : (uf & 0x7fffffff);
+        return uf;
+    }
+
+    // here , exp != 0
+    // exp + 1即可
+    exp += 1;
+    if(exp == 0xff)
+    {
+        // 变为无穷大
+        return (uf & 0x80000000) | 0x7f800000;
+    }else
+    {
+        return (uf & 0x807fffff) | (exp << 23);
+    }
+ 
+}
 /*
  * float_i2f - Return bit-level equivalent of expression (float) x
  *   Result is returned as unsigned int, but
