@@ -179,7 +179,7 @@ int tmin(void)
  */
 int isTmax(int x)
 {
-    return !(x + 1 ^ ~x) & !!(x + 1);
+    return !((x + 1) ^ ~x) & !!(x + 1);
 }
 
 /*
@@ -227,9 +227,11 @@ int isAsciiDigit(int x)
     int acsii_nine = 0x39;
     int negative_acsii_zero = ~acsii_zero + 1;
     int negative_acsii_nine = ~acsii_nine + 1;
-    return (!( (x + negative_acsii_zero) >> 31) & // 0x30 <= x
-            ( (x + negative_acsii_nine)) >> 31 | // x < 0x39
-           !(x + (negative_acsii_nine));                    // x= 0x39
+    
+    int result1 = !(((x + negative_acsii_zero) >> 31) & 1); //0x30 <= x
+    int result2 = ((x + negative_acsii_nine) >> 31) & 1; // x < 0x39
+    int result3 = !(x + (negative_acsii_nine)); // x = 0x39
+    return result1 & (result2 | result3);
 }
 
 /*
@@ -258,20 +260,24 @@ int isLessOrEqual(int x, int y)
 {
     int negative_y = ~y + 1;
     // 取出符号位
-    int sx = x >> 31;
-    int sy = y >> 31;
-    // x <= y
-    int x_less_equal_than_y = !(x + negative_y);
+    int sx = (x >> 31) & 1;
+    int sy = (y >> 31) & 1;
+    
+    // x>y ==> x-y 的符号位一定是0
+    int x_less_equal_than_y = (((x + negative_y) >> 31) & 1)| !(x + negative_y)  ;
+    
     // x < 0, y>= 0 sx = 1 sy = 0, x < y
-    int result1 = sx & !sy;
+    int result1 = sx & (!sy);
     // x < 0 , y < 0 sx = 1, sy = 1, 且 x <= y
     int result2 = sx & sy & x_less_equal_than_y;
     // x >=0 , y >= 0, sx =0 , sy = 0, 且 x <= y
-    int result3 = !sx & !sy & x_less_eqaul_than_y;
+    int result3 = (!sx) & (!sy) & x_less_equal_than_y;
     // x >=0 , y < 0 , sx = 0, sy = 1, 这里 x > y 需要求反,并且不再其它condition中
-    int result4 = (!sx & sy);
+    int result4 = (!sx) & sy;
+
+    return result1 | result2 | result3 | ((!result4) & result1 & result2 & result3);
+
     
-    return result1 | result2 | result3 | (!result4 & result1 & result2 & result3);
 }
 //4
 /* 
