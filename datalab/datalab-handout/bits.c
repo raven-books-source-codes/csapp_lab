@@ -148,19 +148,22 @@ NOTES:
  * 1  1 0
  * 
  * a反b反 *  ab = y
- * 然后通过变换即可得下式
+ * 然后通过逻辑变换即可得下式
  */
-int bitXor(int x, int y) {
-  return ~((~(~x&y)&(~(x&~y))));
+int bitXor(int x, int y)
+{
+    return ~((~(~x & y) & (~(x & ~y))));
 }
-/* 
+
+/*
  * tmin - return minimum two's complement integer 
  *   Legal ops: ! ~ & ^ | + << >>
  *   Max ops: 4
  *   Rating: 1
  */
-int tmin(void) {
-  return 1<<31;
+int tmin(void)
+{
+    return 1 << 31;
 }
 //2
 /*
@@ -174,32 +177,38 @@ int tmin(void) {
  *  就可以 !!(0xff ff ff ff + 1) = !1 = 0
  *        
  */
-int isTmax(int x) {
-  return !(x + 1 ^ ~x) & !!(x + 1);
+int isTmax(int x)
+{
+    return !(x + 1 ^ ~x) & !!(x + 1);
 }
-/* 
+
+/*
  * allOddBits - return 1 if all odd-numbered bits in word set to 1
  *   Examples allOddBits(0xFFFFFFFD) = 0, allOddBits(0xAAAAAAAA) = 1
  *   Legal ops: ! ~ & ^ | + << >>
  *   Max ops: 12
  *   Rating: 2
+ *   这个题目难度不大,生成0xaa aa aa aa即可
  */
-int allOddBits(int x) {
-  int temp = 0xaa;
-  temp = temp << 8 | temp;  // 0x aa aa
-  temp = temp << 8 | temp;  // 0x aa aa aa
-  temp = temp << 8 | temp;  // 0x aa aa aa aa
-  return !((x & temp) ^ temp);
+int allOddBits(int x)
+{
+    int temp = 0xaa;
+    temp = temp << 8 | temp;  // 0x aa aa
+    temp = temp << 8 | temp;  // 0x aa aa aa
+    temp = temp << 8 | temp;  // 0x aa aa aa aa
+    return !((x & temp) ^ temp);
 }
-/* 
+
+/*
  * negate - return -x 
  *   Example: negate(1) = -1.
  *   Legal ops: ! ~ & ^ | + << >>
  *   Max ops: 5
  *   Rating: 2
  */
-int negate(int x) {
-  return (~x) + 1;
+int negate(int x)
+{
+    return (~x) + 1;
 }
 //3
 /* 
@@ -211,54 +220,58 @@ int negate(int x) {
  *   Max ops: 15
  *   Rating: 3
  */
-int isAsciiDigit(int x) {
-  // TODO:这里的做法应该超过max ops了
-  int tmin = 1 << 31;
-  int acsii_zero = 0x30;
-  int acsii_nine = 0x39;
-  int negative_acsii_zero = ~acsii_zero + 1;
-  int negative_acsii_nine = ~acsii_nine + 1;
-  return (!!((x + (negative_acsii_zero) & tmin) ^ tmin) & // 0x30 <= x
-          !((x + (negative_acsii_nine) & tmin) ^ tmin)) | // x < 0x39
-         !(x + (negative_acsii_nine));                    // x= 0x39
+int isAsciiDigit(int x)
+{
+    // TODO:这里的做法应该超过max ops了
+    int acsii_zero = 0x30;
+    int acsii_nine = 0x39;
+    int negative_acsii_zero = ~acsii_zero + 1;
+    int negative_acsii_nine = ~acsii_nine + 1;
+    return (!( (x + negative_acsii_zero) >> 31) & // 0x30 <= x
+            ( (x + negative_acsii_nine)) >> 31 | // x < 0x39
+           !(x + (negative_acsii_nine));                    // x= 0x39
 }
-/* 
+
+/*
  * conditional - same as x ? y : z 
  *   Example: conditional(2,4,5) = 4
  *   Legal ops: ! ~ & ^ | + <<  >>
  *   Max ops: 16
  *   Rating: 3
  */
-int conditional(int x, int y, int z) {
-  int flag = !!x; // flag =1 or flag = 0
-  int negative_one = ~0x1 + 1;  // -1
-  return (~(flag + negative_one) & y) | ((flag + negative_one) & z);
+int conditional(int x, int y, int z)
+{
+    // x 为0 flag= 0 , x不为0,flag = 1
+    int flag = !!x; // flag =1 or flag = 0
+    int negative_one = ~0x1 + 1;  // -1
+    return (~(flag + negative_one) & y) | ((flag + negative_one) & z);
 }
-/* 
+
+/*
  * isLessOrEqual - if x <= y  then return 1, else return 0 
  *   Example: isLessOrEqual(4,5) = 1.
  *   Legal ops: ! ~ & ^ | + << >>
  *   Max ops: 24
  *   Rating: 3
  */
-int isLessOrEqual(int x, int y) {
-  int negative_y = ~y + 1;
-  int tmin = 1 << 31;
-  // 取出符号位
-  int sx = (x & tmin) >> 31;
-  int sy = (y & tmin) >> 31;
-  // x <= y
-  int x_less_eqaul_than_y = !((x + negative_y) & (tmin) ^ (tmin)) | !(x + negative_y);
-  // x < 0, y>= 0 sx = 1 sy = 0, x < y
-  int result1 = sx & !sy;
-  // x < 0 , y < 0 sx = 1, sy = 1, 且 x <= y 
-  int result2 = sx & sy & x_less_eqaul_than_y;
-  // x >=0 , y >= 0, sx =0 , sy = 0, 且 x <= y 
-  int result3 = !sx & !sy & x_less_eqaul_than_y;
-  // x >=0 , y < 0 , sx = 0, sy = 1, 这里 x > y 需要求反,并且不再其它condition中
-  int result4 = (!sx & sy);
-
-  return result1 | result2 | result3 | (!result4 & result1 & result2 & result3);
+int isLessOrEqual(int x, int y)
+{
+    int negative_y = ~y + 1;
+    // 取出符号位
+    int sx = x >> 31;
+    int sy = y >> 31;
+    // x <= y
+    int x_less_equal_than_y = !(x + negative_y);
+    // x < 0, y>= 0 sx = 1 sy = 0, x < y
+    int result1 = sx & !sy;
+    // x < 0 , y < 0 sx = 1, sy = 1, 且 x <= y
+    int result2 = sx & sy & x_less_equal_than_y;
+    // x >=0 , y >= 0, sx =0 , sy = 0, 且 x <= y
+    int result3 = !sx & !sy & x_less_eqaul_than_y;
+    // x >=0 , y < 0 , sx = 0, sy = 1, 这里 x > y 需要求反,并且不再其它condition中
+    int result4 = (!sx & sy);
+    
+    return result1 | result2 | result3 | (!result4 & result1 & result2 & result3);
 }
 //4
 /* 
@@ -267,7 +280,8 @@ int isLessOrEqual(int x, int y) {
  *   Examples: logicalNeg(3) = 0, logicalNeg(0) = 1
  *   Legal ops: ~ & ^ | + << >>
  *   Max ops: 12
- *   Rating: 4 
+ *   Rating: 4
+ *
  *   考虑0和其它数之间的区别, 0的相反数是其本身(Tmin也是)
  *   1. 对x取相反数 ~x+1
  *   2. x ^ ~x+1 =y 
@@ -283,12 +297,14 @@ int isLessOrEqual(int x, int y) {
  *   注意到,tmin首位是1,所以用 tmin>>31 + 1一定等于0. 而 0>> 31 + 1一定等于1.
  *   所以可区分.
  */
-int logicalNeg(int x) {
-  int negative_x = ~x + 1;
-  int result1 = ((x ^ negative_x) >> 31) + 1;
-  int result2 = (x >> 31) + 1;
-  return result1 & result2;
+int logicalNeg(int x)
+{
+    int negative_x = ~x + 1;
+    int result1 = ((x ^ negative_x) >> 31) + 1;
+    int result2 = (x >> 31) + 1;
+    return result1 & result2;
 }
+
 /* howManyBits - return the minimum number of bits required to represent x in
  *             two's complement
  *  Examples: howManyBits(12) = 5
@@ -301,8 +317,40 @@ int logicalNeg(int x) {
  *  Max ops: 90
  *  Rating: 4
  */
-int howManyBits(int x) {
-  return 0;
+int howManyBits(int x)
+{
+    // 如果 x< 0, 则翻转x
+    int reverse_x = ~x;
+    // 使用前面的conditional 来做
+    int negative_one = ~0x1 + 1;  // -1
+    int flag = !(x>>31);
+    x = (~(flag + negative_one) & x) | ((flag + negative_one) & reverse_x);
+    // 把最高位1后的所有位全部填充为 1
+    x = x | x>>1;
+    x = x | x>>2;
+    x = x | x>>4;
+    x = x | x>>8;
+    x = x | x>>16;
+    // 计算现在1的个数 分治算法 将整个二进制bit分成8段,每段4bit
+    int sum = 0;
+    int mask = 1; // 0001
+    mask = mask <<8 | 1; // 0000 0001 后文同理
+    mask = mask <<8 | 1;
+    mask = mask <<8 | 1;
+    mask = mask <<8 | 1;
+    
+    sum += x & mask;
+    sum += (x>>1) & mask;
+    sum += (x>>2) & mask;
+    sum += (x>>3) & mask;
+    sum += (x>>4) & mask;
+    sum += (x>>5) & mask;
+    sum += (x>>6) & mask;
+    sum += (x>>7) & mask;
+    
+    // 分段计算0的个数
+    return (sum & 0xff) + ((sum>>8) & 0xff) + ((sum>>16) & 0xff) + ((sum >> 24) & 0xff)
+           + 1; // 符号位
 }
 //float
 /* 
@@ -316,10 +364,12 @@ int howManyBits(int x) {
  *   Max ops: 30
  *   Rating: 4
  */
-unsigned float_twice(unsigned uf) {
-  return 2;
+unsigned float_twice(unsigned uf)
+{
+    return 2;
 }
-/* 
+
+/*
  * float_i2f - Return bit-level equivalent of expression (float) x
  *   Result is returned as unsigned int, but
  *   it is to be interpreted as the bit-level representation of a
@@ -328,10 +378,12 @@ unsigned float_twice(unsigned uf) {
  *   Max ops: 30
  *   Rating: 4
  */
-unsigned float_i2f(int x) {
-  return 2;
+unsigned float_i2f(int x)
+{
+    return 2;
 }
-/* 
+
+/*
  * float_f2i - Return bit-level equivalent of expression (int) f
  *   for floating point argument f.
  *   Argument is passed as unsigned int, but
@@ -343,6 +395,7 @@ unsigned float_i2f(int x) {
  *   Max ops: 30
  *   Rating: 4
  */
-int float_f2i(unsigned uf) {
-  return 2;
+int float_f2i(unsigned uf)
+{
+    return 2;
 }
