@@ -226,7 +226,7 @@ int isAsciiDigit(int x)
     int acsii_nine = 0x39;
     int negative_acsii_zero = ~acsii_zero + 1;
     int negative_acsii_nine = ~acsii_nine + 1;
-
+    
     int result1 = !(((x + negative_acsii_zero) >> 31) & 1); //0x30 <= x
     int result2 = ((x + negative_acsii_nine) >> 31) & 1;    // x < 0x39
     int result3 = !(x + (negative_acsii_nine));             // x = 0x39
@@ -261,10 +261,10 @@ int isLessOrEqual(int x, int y)
     // 取出符号位
     int sx = (x >> 31) & 1;
     int sy = (y >> 31) & 1;
-
+    
     // x>y ==> x-y 的符号位一定是0
     int x_less_equal_than_y = (((x + negative_y) >> 31) & 1) | !(x + negative_y);
-
+    
     // x < 0, y>= 0 sx = 1 sy = 0, x < y
     int result1 = sx & (!sy);
     // x < 0 , y < 0 sx = 1, sy = 1, 且 x <= y
@@ -273,7 +273,7 @@ int isLessOrEqual(int x, int y)
     int result3 = (!sx) & (!sy) & x_less_equal_than_y;
     // x >=0 , y < 0 , sx = 0, sy = 1, 这里 x > y 需要求反,并且不再其它condition中
     int result4 = (!sx) & sy;
-
+    
     return result1 | result2 | result3 | ((!result4) & result1 & result2 & result3);
 }
 //4
@@ -341,7 +341,7 @@ int howManyBits(int x)
     mask = mask << 8 | 1;
     mask = mask << 8 | 1;
     mask = mask << 8 | 1;
-
+    
     sum += x & mask;
     sum += (x >> 1) & mask;
     sum += (x >> 2) & mask;
@@ -350,7 +350,7 @@ int howManyBits(int x)
     sum += (x >> 5) & mask;
     sum += (x >> 6) & mask;
     sum += (x >> 7) & mask;
-
+    
     // 分段计算0的个数
     return (sum & 0xff) + ((sum >> 8) & 0xff) + ((sum >> 16) & 0xff) + ((sum >> 24) & 0xff) + 1; // 符号位
 }
@@ -370,41 +370,34 @@ unsigned float_twice(unsigned uf)
 {
     // 获取exp
     unsigned exp = 0;
-    for (unsigned i = 0; i < 8; i++)
-    {
-        exp = (exp << 1) + ((uf >> (30 - i)) & 1);
-    }
-
+    exp = (uf & 0x7fffffff) >> 23;
+    
     // Nan
     unsigned Nan = 0xff;
-    if (exp == Nan)
-    {
+    if (exp == Nan) {
         return uf;
     }
-
+    
     // exp == 0
-    if (exp == 0)
-    {
+    if (exp == 0) {
         // 除符号位外,left shift即可
         unsigned sign = uf >> 31 & 1;
         uf = uf << 1;
         uf = sign ? (uf | 0x80000000) : (uf & 0x7fffffff);
         return uf;
     }
-
+    
     // here , exp != 0
     // exp + 1即可
     exp += 1;
-    if (exp == 0xff)
-    {
+    if (exp == 0xff) {
         // 变为无穷大
         return (uf & 0x80000000) | 0x7f800000;
-    }
-    else
-    {
+    } else {
         return (uf & 0x807fffff) | (exp << 23);
     }
 }
+
 /*
  * float_i2f - Return bit-level equivalent of expression (float) x
  *   Result is returned as unsigned int, but
@@ -419,20 +412,20 @@ unsigned float_i2f(int x)
     // 0是特殊情况,本应该采用denormalized方式表达接近0的数,但是这里只有0这个数需要采用denormalized
     if (x == 0)
         return 0;
-
+    
     // tmin 特殊 因为 -tmin = tmin ,二进制情况
     if (x == 0x80000000)
         return 0xcf000000;
-
+    
     // 记录符号位
     int sign = (x >> 31) & 1;
     if (sign == 1)
         x = -x;
-
+    
     const int bias = 127;
     int exp = 0;
     int m = 0;
-
+    
     // 找到最高有效位
     int highest_one_offset = 30;                 // 略过符号位
     while (((x >> highest_one_offset) & 1) != 1) // 因为x!=0, 所有在遍历过程中一定会遇到1
@@ -448,46 +441,34 @@ unsigned float_i2f(int x)
     int lowest_one_offset = 0;
     while (((x >> lowest_one_offset) & 1) != 1) // 去掉所有末尾的0
         lowest_one_offset++;
-
+    
     // 如果截断长度大于了23位,考虑舍入问题
     int frac_len = highest_one_offset - lowest_one_offset;
-    if (frac_len <= 23)
-    {
+    if (frac_len <= 23) {
         // 不用舍入
         m = (x & trunc_frac_mask) >> lowest_one_offset;
         return sign << 31 | exp << 23 | m << (23 - highest_one_offset + lowest_one_offset);
-    }
-    else
-    {
+    } else {
         // 需要舍入,(nearest even)
         int temp_frac = (x & trunc_frac_mask) >> lowest_one_offset;
         // 检验有效位后的第一位
-        if ( (temp_frac >> (frac_len - 23 - 1) &1 ) == 0)
-        {
+        if ((temp_frac >> (frac_len - 23 - 1) & 1) == 0) {
             // 情况1:如果为0,说明将要舍入的部分 未达到小数范围一半直接舍入即可
             m = temp_frac >> (frac_len - 23);
-        }
-        else
-        {
+        } else {
             // 情况2:如果为1, 检验是否后面的舍入位是否为全0
             int offset_r = 0;
             while ((offset_r < (frac_len - 23 - 1)) && (temp_frac >> (offset_r) & 1) == 0)
                 offset_r++;
-            if (offset_r < frac_len - 23 - 1)
-            {
+            if (offset_r < frac_len - 23 - 1) {
                 // 如果后面的舍入位不全为0,则直接向上舍入
                 m = (temp_frac >> (frac_len - 23)) + 1;
-            }
-            else
-            {
+            } else {
                 //  如果后面的舍入位(包含leading位)刚好为一般,及 ?.1000000这种形式,需要考虑偶数舍入
-                if ((temp_frac >> (frac_len - 23) & 1) == 0)
-                {
+                if ((temp_frac >> (frac_len - 23) & 1) == 0) {
                     //情况3, 向下舍
                     m = temp_frac >> (frac_len - 23);
-                }
-                else
-                {
+                } else {
                     // 情况4,向上舍
                     m = (temp_frac >> (frac_len - 23)) + 1;
                 }
@@ -511,5 +492,60 @@ unsigned float_i2f(int x)
  */
 int float_f2i(unsigned uf)
 {
-    return 2;
+    //tmin 是特殊
+    if (uf == 0xcf000000) {
+        return 0x80000000;
+    }
+    
+    // 获取exp
+    unsigned exp = 0;
+    exp = (uf & 0x7fffffff) >> 23;
+    // 两个特殊情况, exp 全0或全1
+    // if exp is 0
+    if (exp == 0) {
+        return 0;
+    }
+    // if ex = nan or inf
+    if (exp == 0xff) {
+        return 0x80000000;
+    }
+    
+    // sign位
+    int sign = (uf >> 31) & 1;
+    // e就是小数位数
+    int e = exp - 127; // bias = 127
+    // m小数位
+    int m;
+    // 保留结果
+    int result;
+    // 指数 < 0
+    if (e < 0) {
+        return 0;
+    } else if(e == 0){
+        return sign ? -1 : 1;
+    }
+    else {
+        // 指数 > 0
+        // 找到小数位的第一个1
+        int frac_leading_one_offset = 22;
+        while (frac_leading_one_offset > 0 && ((uf >> frac_leading_one_offset) & 1) == 0)
+            frac_leading_one_offset++;
+        if (frac_leading_one_offset == 0) {
+            // m为全0
+            result = 1 << e;
+            return sign ? -result : result;
+        } else {
+           // m 不为全0 需要是否考虑out of range
+           if(frac_leading_one_offset + e >= 31) // 条件检测
+           {
+               // out of range
+               return 0x80000000;
+           }else{
+               // 没有 out of range
+               m = uf & 0x7fffff;
+               int result = (1 << (e + 1)) + (m >> (23 - e));
+               return sign ? -result : result;
+           }
+        }
+    }
 }
