@@ -334,7 +334,7 @@ int howManyBits(int x)
     x = x | x >> 4;
     x = x | x >> 8;
     x = x | x >> 16;
-    // 计算现在1的个数 分治算法 将整个二进制bit分成8段,每段4bit
+    // 计算现在1的个数 分治算法 将整个二进制bit分成4段,每段8bit
     int sum = 0;
     int mask = 1;         // 0001
     mask = mask << 8 | 1; // 0000 0001 后文同理
