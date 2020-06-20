@@ -54,3 +54,6 @@ dkms.conf
 # exclude ide
 .vscode
 .idea
+
+# test files
+test
