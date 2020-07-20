@@ -916,18 +916,6 @@ Disassembly of section .text:
   401994:	b8 01 00 00 00       	mov    $0x1,%eax
   401999:	c3                   	retq   
 
-0000000000401ab2 <end_farm>:
-  401ab2:	b8 01 00 00 00       	mov    $0x1,%eax
-  401ab7:	c3                   	retq   
-  401ab8:	90                   	nop
-  401ab9:	90                   	nop
-  401aba:	90                   	nop
-  401abb:	90                   	nop
-  401abc:	90                   	nop
-  401abd:	90                   	nop
-  401abe:	90                   	nop
-  401abf:	90                   	nop
-
 000000000040199a <getval_142>:
   40199a:	b8 fb 78 90 90       	mov    $0x909078fb,%eax
   40199f:	c3                   	retq   
@@ -1096,6 +1084,17 @@ Disassembly of section .text:
   401aab:	c7 07 48 89 e0 90    	movl   $0x90e08948,(%rdi)
   401ab1:	c3                   	retq   
 
+0000000000401ab2 <end_farm>:
+  401ab2:	b8 01 00 00 00       	mov    $0x1,%eax
+  401ab7:	c3                   	retq   
+  401ab8:	90                   	nop
+  401ab9:	90                   	nop
+  401aba:	90                   	nop
+  401abb:	90                   	nop
+  401abc:	90                   	nop
+  401abd:	90                   	nop
+  401abe:	90                   	nop
+  401abf:	90                   	nop
 
 0000000000401ac0 <save_char>:
   401ac0:	8b 05 3e 46 20 00    	mov    0x20463e(%rip),%eax        # 606104 <gets_cnt>
