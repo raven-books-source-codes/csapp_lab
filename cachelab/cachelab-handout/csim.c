@@ -1,7 +1,7 @@
 /**
  * @author: raven
  * @date 2020-7-26
- * @descrption: 模拟仿真计算机cache的 load modify load过程
+ * @description: 模拟仿真计算机cache的 load modify load过程
  * @issue:
  * 1.没有考虑任何复杂度问题
  * 2.函数没有做安全性检查,比如判定null等
