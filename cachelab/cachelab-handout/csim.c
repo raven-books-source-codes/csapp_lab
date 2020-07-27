@@ -1,15 +1,22 @@
 #include "cachelab.h"
-#include <stdio.h>
-#include <unistd.h>
-#include <ctype.h>
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
 
-/*--------------------------数据结构定义start-----------------------*/
+#define _GNU_SOURCE         // getline函数不属于c标准, 需要开启GNU扩展
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <getopt.h>
+#include <ctype.h>
+#include <string.h>
+
+/*--------------------------前置定义-----------------------*/
 #define FILE_NAME_LEN 100
 #define OS_PTR_LEN 64
 typedef unsigned long long address;     // 64-bit address
+
+#define DEBUG_HIT(verbose) do{if(verbose) printf("hit\n");}while(0)
+#define DEBUG_MISS(verbose) do{if(verbose) printf("miss\n");}while(0)
+#define DEBUG_EVICT(verbose) do{if(verbose) printf("evict\n");}while(0)
+/*--------------------------数据结构定义-----------------------*/
 /**
  * 参数
  */
@@ -44,7 +51,7 @@ typedef enum op_mode {
 typedef struct trace_item {
     op_mode mode;                 // 操作模式
     address addr;                 // 地址
-    unsigned int access_size;       // 访问的内存单元数(byte为单位), unsigned int 可以 typedef，但是没想到好名字
+//    unsigned int access_size;       // 访问的内存单元数(byte为单位), unsigned int 可以 typedef，但是没想到好名字
 } trace_item;
 
 /**
@@ -58,11 +65,8 @@ typedef struct set {
 typedef struct cache {
     set *sets;
 } cache;
-/*--------------------------数据结构定义end----------------------*/
 
-/*--------------------------全局变量定义start----------------------*/
-// 系统参数(v,s,E等)
-param sys_param;
+/*--------------------------全局变量定义----------------------*/
 char *usage = "Usage: ./csim-ref [-hv] -s <num> -E <num> -b <num> -t <file>\n"
               "Options:\n"
               "  -h         Print this help message.\n"
@@ -72,11 +76,9 @@ char *usage = "Usage: ./csim-ref [-hv] -s <num> -E <num> -b <num> -t <file>\n"
               "  -b <num>   Number of block offset bits.\n"
               "  -t <file>  Trace file.\n";             // example 略...
 // 结果集合
-unsigned int hits, miss, evits;
-/*--------------------------全局变量定义end----------------------*/
+unsigned int hits, miss, evicts;
 
-/*--------------------------操作function定义start----------------------*/
-
+/*--------------------------操作function定义----------------------*/
 /**
  * 解析输入参数
  * @param argc
@@ -177,7 +179,7 @@ size_t parse_trace_file(trace_item **trace_item_ptr, size_t *trace_item_num, con
             *trace_item_ptr = trace_items;
             // initialize  new alloc memory
             memset(trace_items + (*trace_item_num), 0, (new_num - *trace_item_num) * sizeof(trace_item));
-            // update item_num
+            // update item_num (包含了无效的项)
             *trace_item_num = (*trace_item_num) << 1;
         }
         // mode
@@ -200,19 +202,23 @@ size_t parse_trace_file(trace_item **trace_item_ptr, size_t *trace_item_num, con
         trace_items[i].addr = strtol(addr, NULL, 16);
         
         // byte_nums note: 实际仿真中,这个字段是没用的
-        char buf[10];
-        j++;     // 更新至第一个byte num索引索引位置
-        offset = j;
-        while (line[j] != '\n') {
-            buf[j - offset] = line[j];
-            j++;
-        }
-        buf[j] = '\0';
-        trace_items[i].access_size = atoi(buf);
+//        char buf[10];
+//        j++;     // 更新至第一个byte num索引索引位置
+//        offset = j;
+//        while (line[j] != '\n') {
+//            buf[j - offset] = line[j];
+//            j++;
+//        }
+//        buf[j] = '\0';
+//        trace_items[i].access_size = atoi(buf);
         
         // update idx
         i++;
     }
+    
+    // 删除无用项
+    *trace_item_num = i;
+    *trace_item_ptr = (trace_item *) realloc(*trace_item_ptr, sizeof(trace_item) * (*trace_item_num));
     
     fclose(file);
     return 0;
@@ -226,7 +232,7 @@ void init_cache(cache *sys_cache, param *p)
 {
     const int S = 1 << p->s;
     const int E = p->E;
-    const int B = 1 << p->b;
+//    const int B = 1 << p->b;
     
     set *sets = (set *) malloc(sizeof(set) * S);
     for (size_t i = 0; i < S; i++) {
@@ -239,6 +245,64 @@ void init_cache(cache *sys_cache, param *p)
 }
 
 /**
+ * check是否命中
+ * @param cache_set 需要检测的set
+ * @param p    系统参数
+ * @param tag  地址中的tag
+ * @param cl_idx   如果命中,cl_idx表示当前命中的cacheline在set的中位置(从0开始索引)
+ *                 如果未命中,cl_idx = -1
+ */
+void check_if_hit(set *cache_set, param *p, int tag, size_t *cl_idx)
+{
+    const int E = p->E;
+    for (size_t i = 0; i < E; i++) {
+        if (!cache_set->lines[i].valid) continue;
+        if (cache_set->lines[i].tag == tag) {
+            *cl_idx = i;
+            return;
+        }
+    }
+    *cl_idx = -1;
+}
+//TODO: check_if_hit和check_has_non_block可以做成一个函数,不过这里不考虑效率问题,所以就这样分了
+/**
+ * 检验 这组set中,是否还有空block
+ * @param cache_set  待检验的set
+ * @param p  系统参数
+ * @param cl_idx  如果有空块,则cl_idx=找到的第一个空块
+ *                如果没有空块,cl_idx=-1
+ */
+void check_hash_empty_block(set *cache_set, param *p, size_t *cl_idx)
+{
+    const int E = p->E;
+    for (size_t i = 0; i < E; i++) {
+        if (!cache_set->lines[i].valid) {
+            *cl_idx = i;
+            return;
+        }
+    }
+    *cl_idx = -1;
+}
+
+/**
+ * 采用LRU算法找到需要evict的cache line索引
+ * @param cache_set 需要检查的set
+ * @param p     系统参数
+ * @param cl_idx cl_idx = 找到的cache line在set中的索引
+ */
+void find_evict_cache_line(set *cache_set, param *p, size_t *cl_idx)
+{
+    const int E = p->E;
+    int min_age_idx = 0;
+    for (size_t i = 1; i < E; i++) {
+        if (cache_set->lines[min_age_idx].age > cache_set->lines[i].age) {
+            min_age_idx = i;
+        }
+    }
+    *cl_idx = min_age_idx;
+}
+
+/**
  * load 操作
  * @param cache_set
  * @param tag
@@ -246,74 +310,134 @@ void init_cache(cache *sys_cache, param *p)
  */
 void do_load(set *cache_set, param *p, int tag, int age)
 {
-    // 第一次循环,检查是否有效
-    const int E = p->E;
-    int loaded = 0;
-    for(int i = 0; i< E; i++)
-    {
-       if(!cache_set->lines[i].valid)
-       {
-           // 空快
-           cache_set->lines[i].valid = 1;
-           cache_set->lines[i].tag = tag;
-           cache_set->lines[i].age = age;
-           loaded = 1;
-           break;
-       }
-    }
-    // 空block已经loaded了
-    if(loaded)
-    {
-        miss++;
-        printf("miss\n");
-        return;
-    }
-    
-    // 第二次循环,没有空块, 比较tag是否相同
-    for(size_t i = 0; i< E ; i++)
-    {
-        if(cache_set->lines[i].tag == tag)
-        {
-            // update age
-            cache_set->lines[i].age = age;
-            loaded = 1;
-            break;
-        }
-    }
-    // 如果tag有相同的
-    if(loaded)
+    const int verbose = p->v;
+    // 首先看能否hit
+    size_t cl_idx;
+    check_if_hit(cache_set, p, tag, &cl_idx);
+    if (cl_idx != -1) // 命中
     {
         hits++;
-        printf("hits\n");
+        cache_line *cl = &cache_set->lines[cl_idx];
+        cl->tag = tag;
+        cl->age = age;
+        DEBUG_HIT(verbose);
         return;
     }
     
-    // 第三次循环,没有空快,没有tag相同,使用LRU算法替换策略
-    size_t min_age_idx = 0;
-    for(size_t i = 1; i< E;i++)
+    // 未命中,查看是否有空块
+    check_hash_empty_block(cache_set, p, &cl_idx);
+    if (cl_idx != -1) // 有空块
     {
-        if(cache_set->lines[min_age_idx].age > cache_set->lines[i].age)
-        {
-            min_age_idx = i;
-        }
+        miss++;
+        cache_line *cl = &cache_set->lines[cl_idx];
+        cl->valid = 1;
+        cl->tag = tag;
+        cl->age = age;
+        DEBUG_MISS(verbose);
+        return;
     }
-    // 替换
-    cache_set->lines[min_age_idx].tag = tag;
-    cache_set->lines[min_age_idx].age = age;
-    evits++;
-    printf("evits\n");
+    
+    // 未命中,没有空块
+    find_evict_cache_line(cache_set, p, &cl_idx);
+    if (cl_idx != -1) // ecvit
+    {
+        miss++;
+        DEBUG_MISS(verbose);
+        cache_line *cl = &cache_set->lines[cl_idx];
+        cl->tag = tag;
+        cl->age = age;
+        evicts++;
+        DEBUG_EVICT(verbose);
+        return;
+    }
 }
-
 
 void do_store(set *cache_set, param *p, int tag, int age)
 {
-    do_load(cache_set,p,tag,age);
+    const int verbose = p->v;
+    size_t cl_idx;
+    // 是否hit
+    check_if_hit(cache_set, p, tag, &cl_idx);
+    if (cl_idx != -1) // 命中
+    {
+        hits++;
+        cache_set->lines[cl_idx].age = age;
+        DEBUG_HIT(verbose);
+        return;
+    }
+    
+    // 是否有空块
+    check_hash_empty_block(cache_set, p, &cl_idx);
+    if (cl_idx != -1) // 空块
+    {
+        miss++;
+        cache_set->lines[cl_idx].valid = 1;
+        cache_set->lines[cl_idx].tag = tag;
+        cache_set->lines[cl_idx].age = age;
+        DEBUG_MISS(verbose);
+        return;
+    }
+    
+    // evcit
+    find_evict_cache_line(cache_set, p, &cl_idx);
+    if (cl_idx != -1) // evcit
+    {
+        miss++;
+        DEBUG_MISS(verbose);
+        cache_set->lines[cl_idx].tag = tag;
+        cache_set->lines[cl_idx].age = age;
+        evicts++;
+        DEBUG_HIT(verbose);
+        return;
+    }
+    
 }
 
 void do_modify(set *cache_set, param *p, int tag, int age)
 {
-    do_load(cache_set,p,tag,age);
-    do_store(cache_set,p,tag,age);
+    const int verbose = p->v;
+    size_t cl_idx = -1;
+    // hit?
+    check_if_hit(cache_set, p, tag, &cl_idx);
+    if (cl_idx != -1) {
+        // hit , 之后的store也会hit
+        hits += 2;
+        cache_set->lines[cl_idx].age = age;
+        DEBUG_HIT(verbose);
+        DEBUG_HIT(verbose);
+        return;
+    }
+    
+    // 空块
+    check_hash_empty_block(cache_set, p, &cl_idx);
+    if (cl_idx != -1) {
+        miss++;
+        DEBUG_MISS(verbose);
+        // 首先load
+        cache_set->lines[cl_idx].valid = 1;
+        cache_set->lines[cl_idx].tag = tag;
+        cache_set->lines[cl_idx].age = age;
+        // 再store
+        hits++;
+        DEBUG_HIT(verbose);
+        return;
+    }
+    
+    // evict
+    find_evict_cache_line(cache_set, p, &cl_idx);
+    if (cl_idx != -1) {
+        miss++;
+        DEBUG_MISS(verbose);
+        // evict
+        DEBUG_EVICT(verbose);
+        evicts++;
+        cache_set->lines[cl_idx].tag = tag;
+        cache_set->lines[cl_idx].age = age;
+        // store
+        hits++;
+        DEBUG_HIT(verbose);
+        return;
+    }
 }
 
 /**
@@ -326,18 +450,18 @@ void simulate(cache *sys_cache, param *p, trace_item *trace_items, const unsigne
 {
     const int s = p->s;
     const int b = p->b;
-    const int E = p->E;
+//    const int E = p->E;
     const int tag_bit = OS_PTR_LEN - s - b;
     
     // 构造set tag mask
     // set mask
-    int set_mask = 1;
-    for (size_t i = 0; i < s; i++) {
+    address set_mask = 1;
+    for (size_t i = 0; i < s - 1; i++) {
         set_mask = set_mask << 1 | 1;
     }
     // tag mask
-    int tag_mask = 1;
-    for (size_t i = 0; i < tag_bit; i++) {
+    address tag_mask = 1;
+    for (size_t i = 0; i < tag_bit - 1; i++) {
         tag_mask = tag_mask << 1 | 1;
     }
     
@@ -345,7 +469,7 @@ void simulate(cache *sys_cache, param *p, trace_item *trace_items, const unsigne
         trace_item item = trace_items[i];
         address addr = item.addr;
         op_mode mode = item.mode;
-        int access_size = item.access_size;     // useless
+//        int access_size = item.access_size;     // useless
         
         // step1: 得到set 和 tag
         int set_idx = addr >> b & set_mask;
@@ -354,65 +478,52 @@ void simulate(cache *sys_cache, param *p, trace_item *trace_items, const unsigne
         // step2: 根据操作码来决定具体实施什么样的操作
         switch (mode) {
             case L:
-                do_load(&sys_cache->sets[set_idx],p, tag, i);
+                do_load(&sys_cache->sets[set_idx], p, tag, i);
                 break;
             case M:
-                do_modify(&sys_cache->sets[set_idx],p, tag, i);
+                do_modify(&sys_cache->sets[set_idx], p, tag, i);
                 break;
             case S:
-                do_store(&sys_cache->sets[set_idx],p, tag, i);
+                do_store(&sys_cache->sets[set_idx], p, tag, i);
                 break;
         }
     }
 }
-/*--------------------------操作function定义start----------------------*/
 
-
-/*--------------------------test函数----------------------*/
-
-void test_parse(int argc, char *argv[])
-{
-    int ret;
-    if(!(ret = parse_input_params(argc, argv,&sys_param)))
-    {
-        // parse success
-        printf("v = %d, s = %d, E=%d, b=%d, t=%s\n",
-               sys_param.v,sys_param.s,sys_param.E,sys_param.b,sys_param.t);
-    } else {
-        printf("parse params failed\n");
-    }
-}
-
-
+/*--------------------------操作function定义----------------------*/
 int main(int argc, char *argv[])
 {
+    // 系统输入参数
+    param sys_param;
+    // 解析trace file
+    size_t trace_item_len = 10;
+    trace_item *trace_items = (trace_item *) malloc(trace_item_len * sizeof(trace_item));
+    // 系统cache
+    cache sys_cache;
+    
     int ret;
     // 解析参数
-    ret = parse_input_params(argc,argv,&sys_param);
-    if(ret)
-    {
+    ret = parse_input_params(argc, argv, &sys_param);
+    if (ret) {
         printf("parse input params failed\n");
-        printf("%s\n",usage);
+        printf("%s\n", usage);
         return -1;
     }
+    
     // 解析trace file
-    int trace_item_len = 20;
-    trace_item *trace_items = (trace_item *)malloc(trace_item_len *sizeof(trace_item));
-    ret = parse_trace_file(&trace_items,&trace_item_len, sys_param.t);
-    if(ret)
-    {
+    ret = parse_trace_file(&trace_items, &trace_item_len, sys_param.t);
+    if (ret) {
         printf("parse trace file failed");
         return -1;
     }
     
     // 初始化系统cache
-    cache sys_cache;
-    init_cache(&sys_cache,&sys_param);
+    init_cache(&sys_cache, &sys_param);
     
     // 开始仿真
-    simulate(&sys_cache,&sys_cache,trace_items, trace_item_len);
+    simulate(&sys_cache, &sys_param, trace_items, trace_item_len);
     
     // 打印输出
-    printf("hist=%d, miss=%d, evits=%d",hits,miss,evits);
+    printSummary(hits, miss, evicts);
     return 0;
 }
