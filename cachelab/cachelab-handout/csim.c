@@ -1,3 +1,12 @@
+/**
+ * @author: raven
+ * @date 2020-7-26
+ * @descrption: 模拟仿真计算机cache的 load modify load过程
+ * @issue:
+ * 1.没有考虑任何复杂度问题
+ * 2.函数没有做安全性检查,比如判定null等
+ * 3.main函数中使用到的内存引用没有free
+ */
 #include "cachelab.h"
 
 #define _GNU_SOURCE         // getline函数不属于c标准, 需要开启GNU扩展
@@ -11,11 +20,12 @@
 /*--------------------------前置定义-----------------------*/
 #define FILE_NAME_LEN 100
 #define OS_PTR_LEN 64
-typedef unsigned long long address;     // 64-bit address
+typedef unsigned long long address_64_t;     // 64-bit address
 
 #define DEBUG_HIT(verbose) do{if(verbose) printf("hit\n");}while(0)
 #define DEBUG_MISS(verbose) do{if(verbose) printf("miss\n");}while(0)
 #define DEBUG_EVICT(verbose) do{if(verbose) printf("evict\n");}while(0)
+
 /*--------------------------数据结构定义-----------------------*/
 /**
  * 参数
@@ -34,7 +44,7 @@ typedef struct param {
 typedef struct cache_line {
     int valid;                  // 有效位
     int tag;                    // tag
-    int block_data;             // 存储load到cache的数据，但是由于是模拟，实际这个filed是没用的
+//    int block_data;             // 存储load到cache的数据，但是由于是模拟，实际这个filed是没用的
     int age;                    // age，用于实现LRU替换策略
 } cache_line;
 
@@ -50,7 +60,7 @@ typedef enum op_mode {
 
 typedef struct trace_item {
     op_mode mode;                 // 操作模式
-    address addr;                 // 地址
+    address_64_t addr;                 // 地址
 //    unsigned int access_size;       // 访问的内存单元数(byte为单位), unsigned int 可以 typedef，但是没想到好名字
 } trace_item;
 
@@ -173,7 +183,7 @@ size_t parse_trace_file(trace_item **trace_item_ptr, size_t *trace_item_num, con
             
             trace_items = realloc(trace_items, new_num * sizeof(trace_item));
             if (!trace_items) {
-                perror("realloc memory for trace item failed\n");
+                printf("realloc memory for trace item failed\n");
                 exit(-1);
             }
             *trace_item_ptr = trace_items;
@@ -455,19 +465,19 @@ void simulate(cache *sys_cache, param *p, trace_item *trace_items, const unsigne
     
     // 构造set tag mask
     // set mask
-    address set_mask = 1;
+    address_64_t set_mask = 1;
     for (size_t i = 0; i < s - 1; i++) {
         set_mask = set_mask << 1 | 1;
     }
     // tag mask
-    address tag_mask = 1;
+    address_64_t tag_mask = 1;
     for (size_t i = 0; i < tag_bit - 1; i++) {
         tag_mask = tag_mask << 1 | 1;
     }
     
     for (size_t i = 0; i < item_num; i++) {
         trace_item item = trace_items[i];
-        address addr = item.addr;
+        address_64_t addr = item.addr;
         op_mode mode = item.mode;
 //        int access_size = item.access_size;     // useless
         
@@ -490,7 +500,6 @@ void simulate(cache *sys_cache, param *p, trace_item *trace_items, const unsigne
     }
 }
 
-/*--------------------------操作function定义----------------------*/
 int main(int argc, char *argv[])
 {
     // 系统输入参数
@@ -500,8 +509,8 @@ int main(int argc, char *argv[])
     trace_item *trace_items = (trace_item *) malloc(trace_item_len * sizeof(trace_item));
     // 系统cache
     cache sys_cache;
-    
     int ret;
+    
     // 解析参数
     ret = parse_input_params(argc, argv, &sys_param);
     if (ret) {
