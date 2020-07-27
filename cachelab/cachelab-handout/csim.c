@@ -20,7 +20,7 @@
 /*--------------------------前置定义-----------------------*/
 #define FILE_NAME_LEN 100
 #define OS_PTR_LEN 64
-typedef unsigned long long address_64_t;     // 64-bit address
+typedef unsigned long long address64_t;     // 64-bit address
 
 #define DEBUG_HIT(verbose) do{if(verbose) printf("hit\n");}while(0)
 #define DEBUG_MISS(verbose) do{if(verbose) printf("miss\n");}while(0)
@@ -60,7 +60,7 @@ typedef enum op_mode {
 
 typedef struct trace_item {
     op_mode mode;                 // 操作模式
-    address_64_t addr;                 // 地址
+    address64_t addr;                 // 地址
 //    unsigned int access_size;       // 访问的内存单元数(byte为单位), unsigned int 可以 typedef，但是没想到好名字
 } trace_item;
 
@@ -282,7 +282,7 @@ void check_if_hit(set *cache_set, param *p, int tag, size_t *cl_idx)
  * @param cl_idx  如果有空块,则cl_idx=找到的第一个空块
  *                如果没有空块,cl_idx=-1
  */
-void check_hash_empty_block(set *cache_set, param *p, size_t *cl_idx)
+void check_has_empty_block(set *cache_set, param *p, size_t *cl_idx)
 {
     const int E = p->E;
     for (size_t i = 0; i < E; i++) {
@@ -296,6 +296,7 @@ void check_hash_empty_block(set *cache_set, param *p, size_t *cl_idx)
 
 /**
  * 采用LRU算法找到需要evict的cache line索引
+ * Note: 本函数假设当前set中没有空块
  * @param cache_set 需要检查的set
  * @param p     系统参数
  * @param cl_idx cl_idx = 找到的cache line在set中的索引
@@ -335,7 +336,7 @@ void do_load(set *cache_set, param *p, int tag, int age)
     }
     
     // 未命中,查看是否有空块
-    check_hash_empty_block(cache_set, p, &cl_idx);
+    check_has_empty_block(cache_set, p, &cl_idx);
     if (cl_idx != -1) // 有空块
     {
         miss++;
@@ -377,7 +378,7 @@ void do_store(set *cache_set, param *p, int tag, int age)
     }
     
     // 是否有空块
-    check_hash_empty_block(cache_set, p, &cl_idx);
+    check_has_empty_block(cache_set, p, &cl_idx);
     if (cl_idx != -1) // 空块
     {
         miss++;
@@ -419,7 +420,7 @@ void do_modify(set *cache_set, param *p, int tag, int age)
     }
     
     // 空块
-    check_hash_empty_block(cache_set, p, &cl_idx);
+    check_has_empty_block(cache_set, p, &cl_idx);
     if (cl_idx != -1) {
         miss++;
         DEBUG_MISS(verbose);
@@ -465,19 +466,19 @@ void simulate(cache *sys_cache, param *p, trace_item *trace_items, const unsigne
     
     // 构造set tag mask
     // set mask
-    address_64_t set_mask = 1;
+    address64_t set_mask = 1;
     for (size_t i = 0; i < s - 1; i++) {
         set_mask = set_mask << 1 | 1;
     }
     // tag mask
-    address_64_t tag_mask = 1;
+    address64_t tag_mask = 1;
     for (size_t i = 0; i < tag_bit - 1; i++) {
         tag_mask = tag_mask << 1 | 1;
     }
     
     for (size_t i = 0; i < item_num; i++) {
         trace_item item = trace_items[i];
-        address_64_t addr = item.addr;
+        address64_t addr = item.addr;
         op_mode mode = item.mode;
 //        int access_size = item.access_size;     // useless
         
