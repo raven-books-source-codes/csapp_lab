@@ -46,7 +46,28 @@ void transpose_submit(int M, int N, int A[N][M], int B[M][N])
 
 /**
  * @brief block size 8
+ * miss计算:
+ * BSIZE 8， 总共分为了16块， 假设块编号从0开始，由左向右，由上向下。
+ * 则左边第一列块中的每一块（块编号为0,4,8,12)miss数为(9+7+7)：
+ * 1.第1个9代表 load A的第一个条带(1个miss)+ store B的第一个条带（8个miss）
+ * 2.第2个7代表 load A的剩余7列带来的miss
+ * 3.第3个7代表，store B的剩余7列带来的miss
+ * 具体可参见文件： m32n32-23miss
+ * 所以这4个块总miss为：4*(9+7+7) = 92
  * 
+ * 上述说完了最靠左边的一列block，还剩3列block，3*4 = 12个block
+ * 这些block的共性就是 load A条带不会和Store A条带冲突。
+ * 所以扫描完一个block会造成的miss为8+8：
+ * 1. 第一个8代表，store B的第一个条带（8个miss）
+ * 2. 第二个8代表， load 8个A条带带来的miss
+ * 所以这12个块总miss为： 12*(8+8) = 192
+ * 具体可参见文件：m32n32-16miss
+ * 
+ * 另外还有3个固定的额外开销，具体对应哪个cache miss未知，猜测为初始化循环变量带来的（但应该不是，如果你知道，还请告诉我）
+ * 具体可参见文件：m32n32-extra-miss
+ * 
+ * 所以最终的miss为:
+ * 92+192+3 = 287
  * @param A 
  * @param B 
  */
@@ -56,7 +77,8 @@ void trans32_v1(int A[32][32], int B[32][32])
 #define LEN 32
 #define BSIZE 8
     // NOTE: 这里采用4循环是为了更好理解“blocking”机制，其实采用3个循环就能做，具体是融合j和k
-    int i, j, k, q;
+    int i, j, k;
+    int t0, t1, t2, t3, t4, t5, t6, t7;
 
     // 所有循环视角从B矩阵出发
     for (i = 0; i < LEN; i += BSIZE) // 1. 以block行为单位，扫描整个矩阵
@@ -65,10 +87,31 @@ void trans32_v1(int A[32][32], int B[32][32])
         {
             for (k = j; k < j + BSIZE; k++) // 3. 以一个条带为单位，扫描一个块
             {
-                for (q = 0; q < BSIZE; q++) // 4. 以最小粒度为单位， 扫描一个条带
-                {
-                    B[i + q][k] = A[k][i + q];
-                }
+
+                // 避免对角线的 A B矩阵cacheline竞争
+                t0 = A[k][i + 0];
+                t1 = A[k][i + 1];
+                t2 = A[k][i + 2];
+                t3 = A[k][i + 3];
+                t4 = A[k][i + 4];
+                t5 = A[k][i + 5];
+                t6 = A[k][i + 6];
+                t7 = A[k][i + 7];
+
+                B[i + 0][k] = t0;
+                B[i + 1][k] = t1;
+                B[i + 2][k] = t2;
+                B[i + 3][k] = t3;
+                B[i + 4][k] = t4;
+                B[i + 5][k] = t5;
+                B[i + 6][k] = t6;
+                B[i + 7][k] = t7;
+
+                // 第二种写法,但是存在对角线竞争
+                // for (q = 0; q < BSIZE; q++) // 4. 以最小粒度为单位， 扫描一个条带
+                // {
+                //     B[i + q][k] = A[k][i + q];
+                // }
             }
         }
     }
@@ -76,30 +119,98 @@ void trans32_v1(int A[32][32], int B[32][32])
 #undef BSIZE
 }
 
+/**
+ * @brief block size 8
+ * 
+ * @param A 
+ * @param B 
+ */
 char trans64_v1_desc[] = "trans64_v1_desc";
 void trans64_v1(int A[64][64], int B[64][64])
 {
 #define LEN 64
-#define BSIZE 4
     // NOTE: 这里采用4循环是为了更好理解“blocking”机制，其实采用3个循环就能做，具体是融合j和k
-    int i, j, k, q;
+    int i, j, k;
+    // int t0, t1, t2, t3;
 
     // 所有循环视角从B矩阵出发
-    for (i = 0; i < LEN; i += BSIZE) // 1. 以block行为单位，扫描整个矩阵
+    for (i = 0; i < LEN; i += 8) // 1. 以block行为单位，扫描整个矩阵
     {
-        for (j = 0; j < LEN; j += BSIZE) // 2. 以一个block为单位，扫描一个block行
+        for (j = 0; j < LEN; j += 4) // 2. 以一个block为单位，扫描一个block行
         {
-            for (k = j; k < j + BSIZE; k++) // 3. 以一个条带为单位，扫描一个块
+            for (k = j; k < j + 4; k++) // 3. 以一个条带为单位，扫描一个块
             {
-                for (q = 0; q < BSIZE; q++) // 4. 以最小粒度为单位， 扫描一个条带
+
+                if (j == 0)
+                { // 第一块
+                    // 前4个正常放置
+                    B[i + 0][k] = A[k][i + 0];
+                    B[i + 1][k] = A[k][i + 1];
+                    B[i + 2][k] = A[k][i + 2];
+                    B[i + 3][k] = A[k][i + 3];
+
+                    // 后4个需要单独处理
+                    B[i + k % 4][j + 4] = A[k][i + 4];
+                    B[i + k % 4][j + 5] = A[k][i + 5];
+                    B[i + k % 4][j + 6] = A[k][i + 6];
+                    B[i + k % 4][j + 7] = A[k][i + 7];
+                }
+                else if (j == LEN - 4)
                 {
-                    B[i + q][k] = A[k][i + q];
+                    if (k == j) // 第一次进入该块时，搬迁
+                    {
+                        for (size_t a = i; a < i + 4; a++)
+                        {
+                            for (size_t b = j; b < j + 4; b++) // 一个条带
+                            {
+                                // 两点关于一条直线对称
+                                // int aa = b + i - j + 4;
+                                // int bb = a - i + j - 4;
+                                B[b + i - j + 4][a - i + j - 4] = B[a][b];
+                            }
+                        }
+                    }
+
+                    // 最后一块
+                    // 填充8个
+                    for (size_t a = 0; a < 8; a++)
+                    {
+                        B[i + a][k] = A[k][i + a];
+                    }
+                }
+                else
+                { // 中间块
+                    // 搬移到正确位置
+                    if (k == j) // 第一次进入该块时，搬迁
+                    {
+                        for (size_t a = i; a < i + 4; a++)
+                        {
+                            for (size_t b = j; b < j + 4; b++) // 一个条带
+                            {
+                                // 两点关于一条直线对称
+                                // int aa = b + i - j + 4;
+                                // int bb = a - i + j - 4;
+                                B[b + i - j + 4][a - i + j - 4] = B[a][b];
+                            }
+                        }
+                    }
+                    // 和第一块处理方式相同
+                    // 前4个正常放置
+                    B[i + 0][k] = A[k][i + 0];
+                    B[i + 1][k] = A[k][i + 1];
+                    B[i + 2][k] = A[k][i + 2];
+                    B[i + 3][k] = A[k][i + 3];
+
+                    // 后4个需要单独处理
+                    B[i + k % 4][j + 4] = A[k][i + 4];
+                    B[i + k % 4][j + 5] = A[k][i + 5];
+                    B[i + k % 4][j + 6] = A[k][i + 6];
+                    B[i + k % 4][j + 7] = A[k][i + 7];
                 }
             }
         }
     }
 #undef LEN
-#undef BSIZE
 }
 
 char trans6761_v1_desc[] = "trans6167_v1_desc";
@@ -108,7 +219,7 @@ void trans6761_v1(int A[67][61], int B[61][67])
     // 从A矩阵视角
 #define M 67
 #define N 61
-#define BSIZE 4
+#define BSIZE 16
     int i, j, k, q;
 
     // 所有循环视角从B矩阵出发
@@ -132,34 +243,6 @@ void trans6761_v1(int A[67][61], int B[61][67])
             }
         }
     }
-
-    // DEBUG
-    // // write b
-    // FILE *fileA = fopen("AMatrix", "w");
-    // FILE *fileB = fopen("BMatrix", "w");
-
-    // char buf[100];
-    // for (size_t i = 0; i < M;i++)
-    // {
-    //     for (size_t j = 0; j < N;j++)
-    //     {
-    //         sprintf(buf, "%d ", A[i][j]);
-    //         fwrite(buf, 1, strlen(buf), fileA);
-    //     }
-    //     fwrite("\n", 1, 1, fileA);
-    // }
-    // fclose(fileA);
-
-    // for (size_t i = 0; i < N;i++)
-    // {
-    //     for (size_t j = 0; j < M;j++)
-    //     {
-    //         sprintf(buf, "%d ", B[i][j]);
-    //         fwrite(buf, 1, strlen(buf), fileB);
-    //     }
-    //     fwrite("\n", 1, 1, fileB);
-    // }
-    // fclose(fileB);
 #undef N
 #undef M
 #undef BSIZE

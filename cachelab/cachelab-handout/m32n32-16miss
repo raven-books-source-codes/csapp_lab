@@ -1,0 +1,128 @@
+L 10d180,4 miss eviction 
+L 10d184,4 hit 
+L 10d188,4 hit 
+L 10d18c,4 hit 
+L 10d190,4 hit 
+L 10d194,4 hit 
+L 10d198,4 hit 
+L 10d19c,4 hit 
+S 14d560,4 miss eviction 
+S 14d5e0,4 miss eviction 
+S 14d660,4 miss eviction 
+S 14d6e0,4 miss eviction 
+S 14d760,4 miss eviction 
+S 14d7e0,4 miss eviction 
+S 14d860,4 miss eviction 
+S 14d8e0,4 miss eviction 
+L 10d200,4 miss eviction 
+L 10d204,4 hit 
+L 10d208,4 hit 
+L 10d20c,4 hit 
+L 10d210,4 hit 
+L 10d214,4 hit 
+L 10d218,4 hit 
+L 10d21c,4 hit 
+S 14d564,4 hit 
+S 14d5e4,4 hit 
+S 14d664,4 hit 
+S 14d6e4,4 hit 
+S 14d764,4 hit 
+S 14d7e4,4 hit 
+S 14d864,4 hit 
+S 14d8e4,4 hit 
+L 10d280,4 miss eviction 
+L 10d284,4 hit 
+L 10d288,4 hit 
+L 10d28c,4 hit 
+L 10d290,4 hit 
+L 10d294,4 hit 
+L 10d298,4 hit 
+L 10d29c,4 hit 
+S 14d568,4 hit 
+S 14d5e8,4 hit 
+S 14d668,4 hit 
+S 14d6e8,4 hit 
+S 14d768,4 hit 
+S 14d7e8,4 hit 
+S 14d868,4 hit 
+S 14d8e8,4 hit 
+L 10d300,4 miss eviction 
+L 10d304,4 hit 
+L 10d308,4 hit 
+L 10d30c,4 hit 
+L 10d310,4 hit 
+L 10d314,4 hit 
+L 10d318,4 hit 
+L 10d31c,4 hit 
+S 14d56c,4 hit 
+S 14d5ec,4 hit 
+S 14d66c,4 hit 
+S 14d6ec,4 hit 
+S 14d76c,4 hit 
+S 14d7ec,4 hit 
+S 14d86c,4 hit 
+S 14d8ec,4 hit 
+L 10d380,4 miss eviction 
+L 10d384,4 hit 
+L 10d388,4 hit 
+L 10d38c,4 hit 
+L 10d390,4 hit 
+L 10d394,4 hit 
+L 10d398,4 hit 
+L 10d39c,4 hit 
+S 14d570,4 hit 
+S 14d5f0,4 hit 
+S 14d670,4 hit 
+S 14d6f0,4 hit 
+S 14d770,4 hit 
+S 14d7f0,4 hit 
+S 14d870,4 hit 
+S 14d8f0,4 hit 
+L 10d400,4 miss eviction 
+L 10d404,4 hit 
+L 10d408,4 hit 
+L 10d40c,4 hit 
+L 10d410,4 hit 
+L 10d414,4 hit 
+L 10d418,4 hit 
+L 10d41c,4 hit 
+S 14d574,4 hit 
+S 14d5f4,4 hit 
+S 14d674,4 hit 
+S 14d6f4,4 hit 
+S 14d774,4 hit 
+S 14d7f4,4 hit 
+S 14d874,4 hit 
+S 14d8f4,4 hit 
+L 10d480,4 miss eviction 
+L 10d484,4 hit 
+L 10d488,4 hit 
+L 10d48c,4 hit 
+L 10d490,4 hit 
+L 10d494,4 hit 
+L 10d498,4 hit 
+L 10d49c,4 hit 
+S 14d578,4 hit 
+S 14d5f8,4 hit 
+S 14d678,4 hit 
+S 14d6f8,4 hit 
+S 14d778,4 hit 
+S 14d7f8,4 hit 
+S 14d878,4 hit 
+S 14d8f8,4 hit 
+L 10d500,4 miss eviction 
+L 10d504,4 hit 
+L 10d508,4 hit 
+L 10d50c,4 hit 
+L 10d510,4 hit 
+L 10d514,4 hit 
+L 10d518,4 hit 
+L 10d51c,4 hit 
+S 14d57c,4 hit 
+S 14d5fc,4 hit 
+S 14d67c,4 hit 
+S 14d6fc,4 hit 
+S 14d77c,4 hit 
+S 14d7fc,4 hit 
+S 14d87c,4 hit 
+S 14d8fc,4 hit 
