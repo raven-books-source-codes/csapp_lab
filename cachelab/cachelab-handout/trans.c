@@ -30,18 +30,18 @@ void trans6761_v1(int A[67][61], int B[61][67]);
 char transpose_submit_desc[] = "Transpose submission";
 void transpose_submit(int M, int N, int A[N][M], int B[M][N])
 {
-    // if (M == 32 && N == 32)
-    // {
-    //     trans32_v1(A, B);
-    // }
-    // else if (M == 64 && N == 64)
-    // {
-    //     trans64_v1(A, B);
-    // }
-    // else if (M == 61 && N == 67)
-    // {
+    if (M == 32 && N == 32)
+    {
+        trans32_v1(A, B);
+    }
+    else if (M == 64 && N == 64)
+    {
+        trans64_v1(A, B);
+    }
+    else if (M == 61 && N == 67)
+    {
         trans6761_v1(A, B);
-    // }
+    }
 }
 
 /**
