@@ -766,7 +766,7 @@ cachelab的writeup中，有这样一句话：
 
 对角线？ 是的，对角线上的元素，会发生冲突不命中问题。究其根本，在于我们对A进行了反复读。如何解决？把A的数据放到寄存器就行了。再次回到write u中：
 
-![](https://pic.downk.cc/item/5f212d3314195aa594512d18.png)
+![](https://cdn.jsdelivr.net/gh/ravenxrz/PicBed/img/5f212d3314195aa594512d18.png)
 
 
 
@@ -895,7 +895,7 @@ void trans6761_v1(int A[67][61], int B[61][67])
 }
 ```
 
-==最终的miss为==
+**最终的miss为1817**
 
 ### 3. 64x64
 
@@ -903,7 +903,7 @@ void trans6761_v1(int A[67][61], int B[61][67])
 
 1. 如果BSIZE 依然取8会发生什么问题？
 
-![image-20200729151739512](https://pic.downk.cc/item/5f212d5b14195aa594514cfb.png)
+![image-20200729151739512](https://cdn.jsdelivr.net/gh/ravenxrz/PicBed/img/5f212d5b14195aa594514cfb.png)
 
 上图给出了此时的矩阵内部cacheline分布，有个很严重的问题在于一个cache空间，在矩阵中近4行就重复了。那如果条带继续为8， B列向扫描一个条带，后4个元素就会替换前4个元素所在的cacheline。造成过多**冲突不命中**。
 
@@ -919,7 +919,7 @@ void trans6761_v1(int A[67][61], int B[61][67])
 
 A条带长度为8，我们将一个A条带的前4列正常填入B的前4行，而**A条带的后4列填入到其他地方，**再等待某个时机，将这些临时填充的数据归还到正确位置即可。示意图：
 
-![image-20200729153035966](https://pic.downk.cc/item/5f212d6b14195aa59451559a.png)
+![image-20200729153035966](https://cdn.jsdelivr.net/gh/ravenxrz/PicBed/img/5f212d6b14195aa59451559a.png)
 
 绿色代表正常填入区间。
 
@@ -929,7 +929,7 @@ A条带长度为8，我们将一个A条带的前4列正常填入B的前4行，�
 
 接着，在某个时机：
 
-![image-20200729153243973](https://pic.downk.cc/item/5f212d7d14195aa594515d89.png)
+![image-20200729153243973](https://cdn.jsdelivr.net/gh/ravenxrz/PicBed/img/5f212d7d14195aa594515d89.png)
 
 几个问题：
 
@@ -953,7 +953,7 @@ A条带长度为8，我们将一个A条带的前4列正常填入B的前4行，�
 
 最终我选择方案为： BSIZE=8，临时填充区间示意图如下：
 
-![image-20200729153935817](https://pic.downk.cc/item/5f212d8c14195aa5945163a2.png)
+![image-20200729153935817](https://cdn.jsdelivr.net/gh/ravenxrz/PicBed/img/5f212d8c14195aa5945163a2.png)
 
 为什么会这样选？如果像之前示意图那样选，依然会存在很多冲突映射，甚至不如不做映射。仔细分析了下trace file,手动模拟了cache line的load store过程，选择的这样的临时填充映射。
 
@@ -963,7 +963,7 @@ A条带长度为8，我们将一个A条带的前4列正常填入B的前4行，�
 
 **既然是后4x8和前4x8冲突了，那把两次赋值过程分开不就好了吗？**
 
-是的，基于这样的思想，我改了代码，嗯，不错，这次跑的结果为1190。总算挤近1300了。
+是的，基于这样的思想，我改了代码，嗯，不错，**这次跑的结果为1190**。总算挤近1300了。
 
 别忘了，依然要解决重复加载A条带带来的冲突不命中问题（即，多定义局部变量）。
 
