@@ -76,7 +76,7 @@ void trans32_v1(int A[32][32], int B[32][32])
 {
 #define LEN 32
 #define BSIZE 8
-    // NOTE: 这里采用4循环是为了更好理解“blocking”机制，其实采用3个循环就能做，具体是融合j和k
+
     int i, j, k;
     int t0, t1, t2, t3, t4, t5, t6, t7;
 
@@ -129,7 +129,6 @@ char trans64_v1_desc[] = "trans64_v1_desc";
 void trans64_v1(int A[64][64], int B[64][64])
 {
 #define LEN 64
-    // NOTE: 这里采用4循环是为了更好理解“blocking”机制，其实采用3个循环就能做，具体是融合j和k
     int i, j, k;
     int t0, t1, t2, t3, t4, t5, t6, t7;
 
@@ -183,7 +182,8 @@ void trans64_v1(int A[64][64], int B[64][64])
 
                     // 然后，填入本block正确的元素
                     if (j != LEN - 8)
-                    { // 中间块处理方式和第一块处理方式相同
+                    { 
+                        // 中间块处理方式和第一块处理方式相同
                         // 前4个正常放置
                         B[i + 0][k] = t0;
                         B[i + 1][k] = t1;
