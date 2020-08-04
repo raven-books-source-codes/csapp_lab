@@ -195,9 +195,7 @@ void eval(char *cmdline)
         // 外部命令
         if (access(argv[0], F_OK) == -1)
         {
-            char msg[MAXLINE];
-            sprintf(msg, "%s: Command not found\n", argv[0]);
-            printf(msg);
+            printf("%s: Command not found\n", argv[0]);
             return;
         }
 
@@ -365,22 +363,38 @@ void do_bgfg(char **argv)
     // 命令是否有效？
     if (argv[1] == NULL)
     {
-        char msg[MAXLINE];
-        sprintf(msg, "%s command requires PID or %%jobid argument\n", argv[0]);
-        printf(msg);
+        printf("%s command requires PID or %%jobid argument\n", argv[0]);
         return;
     }
 
-    if (arg[0] != '%')
-    { // pid 模式
-        pid = atoi(arg);
-        jid = pid2jid(pid);
+    // 判断参数后续是否全是数字
+    if (arg[0] == '%')
+    { 
+        arg++;
+    }
+    while (*arg != '\0')
+    {
+        if (!isdigit(*arg))
+        {
+            printf("%s: argument must be a PID or %%jobid\n", argv[0]);
+            return;
+        }
+        arg++;
+    }
+    arg = argv[1];      // 还原
+
+    // 获取job
+    if (argv[1][0] == '%')
+    {
+        // jid mod
+        jid = atoi(argv[1] + 1);
     }
     else
-    { // jid 模式
-        jid = atoi(arg + 1);
+    {
+        // pid mod
+        pid = atoi(argv[1]);
+        jid = pid2jid(pid);
     }
-
     job = getjobjid(jobs, jid);
     if (!job)
     {
@@ -395,9 +409,10 @@ void do_bgfg(char **argv)
         return;
     }
 
-    sigprocmask(SIG_SETMASK, &mask_all, &pre_one);
     if (!strcmp("fg", argv[0]))
-    { // fg mode
+    {
+        sigprocmask(SIG_SETMASK, &mask_all, &pre_one);
+        // fg mode
         // 后台进程转前台
         if (job->state == FG)
         {
@@ -409,10 +424,12 @@ void do_bgfg(char **argv)
         kill(job->pid, SIGCONT);
 
         job->state = FG;
+        sigprocmask(SIG_SETMASK, &pre_one, 0);
         waitfg(job->pid);
     }
     else if (!strcmp("bg", argv[0]))
     { // bg mode
+        sigprocmask(SIG_SETMASK, &mask_all, &pre_one);
         // 后台stop进程转running进程
         if (job->state != ST)
         {
@@ -422,10 +439,10 @@ void do_bgfg(char **argv)
 
         kill(job->pid, SIGCONT);
         job->state = BG;
+        sigprocmask(SIG_SETMASK, &pre_one, 0);
         // TODO: 这里的printf后面没有加\n，因为cmdline自带\n
         printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
     }
-    sigprocmask(SIG_SETMASK, &pre_one, 0);
 
     return;
 }
@@ -494,7 +511,7 @@ void sigchld_handler(int sig)
         job->state = ST;
     }
     else
-    {   // terminate，需要deletejob
+    { // terminate，需要deletejob
         deletejob(jobs, pid);
     }
     sigprocmask(SIG_SETMASK, &pre_one, NULL);
@@ -514,11 +531,13 @@ void sigint_handler(int sig)
     struct job_t *job;
 
     pid = fgpid(jobs);
-    if(!pid){
+    if (!pid)
+    {
         return;
     }
-    job = getjobpid(jobs,pid);
-    if(!job){
+    job = getjobpid(jobs, pid);
+    if (!job)
+    {
         return;
     }
 
@@ -545,15 +564,16 @@ void sigtstp_handler(int sig)
     struct job_t *job;
 
     pid = fgpid(jobs);
-    if(!pid){
+    if (!pid)
+    {
         return;
     }
 
-    job = getjobpid(jobs,pid);
-    if(!job){
+    job = getjobpid(jobs, pid);
+    if (!job)
+    {
         return;
     }
-
 
     // TODO: 不应该在handler中出现printf这类async-unsafe, 替换为safe-library即可
     printf("Job [%d] (%d) stoped by signal %d\n", job->jid, job->pid, sig);
