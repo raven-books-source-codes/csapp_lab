@@ -52,8 +52,6 @@ struct job_t
 struct job_t jobs[MAXJOBS]; /* The job list */
 /* End global variables */
 
-#define LOG(...) printf(__VA_ARGS__)
-
 /* Function prototypes */
 
 /* Here are the functions that you will implement */
@@ -575,7 +573,6 @@ void sigtstp_handler(int sig)
     {
         return;
     }
-
     job = getjobpid(jobs, pid);
     if (!job)
     {
@@ -583,7 +580,6 @@ void sigtstp_handler(int sig)
     }
 
     // 有前台进程, forward to it， 后续处理交给chld_handler
-    // 注意传递INT信号可能会造成死循环：具体参考https://blog.csdn.net/guozhiyingguo/article/details/53837424
     kill(job->pid, SIGTSTP);
 
     errno = olderrno;
