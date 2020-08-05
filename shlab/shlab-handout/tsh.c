@@ -8,7 +8,6 @@
 #include <unistd.h>
 #include <string.h>
 #include <ctype.h>
-#define __USE_POSIX
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -369,7 +368,7 @@ void do_bgfg(char **argv)
 
     // 判断参数后续是否全是数字
     if (arg[0] == '%')
-    { 
+    {
         arg++;
     }
     while (*arg != '\0')
@@ -381,18 +380,18 @@ void do_bgfg(char **argv)
         }
         arg++;
     }
-    arg = argv[1];      // 还原
+    arg = argv[1]; // 还原
 
     // 获取job
-    if (argv[1][0] == '%')
+    if (arg[0] == '%')
     {
         // jid mod
-        jid = atoi(argv[1] + 1);
+        jid = atoi(arg + 1);
     }
     else
     {
         // pid mod
-        pid = atoi(argv[1]);
+        pid = atoi(arg);
         jid = pid2jid(pid);
     }
     job = getjobjid(jobs, jid);
@@ -419,9 +418,12 @@ void do_bgfg(char **argv)
             printf("process is foreground already\n");
             return;
         }
-
-        // ST -> RUNNING
-        kill(job->pid, SIGCONT);
+        else if (job->state == ST)
+        {
+            // ST -> RUNNING
+            // TODO: 测试后发现，发送SIGCONT后，也会触发一次SIGCHLD,目前原因未知
+            kill(job->pid, SIGCONT);
+        }
 
         job->state = FG;
         sigprocmask(SIG_SETMASK, &pre_one, 0);
@@ -494,11 +496,9 @@ void sigchld_handler(int sig)
     sigfillset(&mask_all);
 
     pid = waitpid(-1, &wstate, WNOHANG | WUNTRACED);
-
     job = getjobpid(jobs, pid);
     if (!job)
     {
-        printf("job not found\n");
         return;
     }
 
@@ -507,15 +507,24 @@ void sigchld_handler(int sig)
     // 2. 通过信号，被stop了，如用户键入 ctrl+z
     sigprocmask(SIG_SETMASK, &mask_all, &pre_one);
     if (WIFSTOPPED(wstate))
-    { // stoped，更新状态即可
+    { 
+        // stoped，更新状态即可
+        // TODO: 不应该在handler中出现printf这类async-unsafe, 替换为safe-library即可
+        printf("Job [%d] (%d) stoped by signal %d\n", job->jid, job->pid, SIGTSTP);
         job->state = ST;
     }
     else
-    { // terminate，需要deletejob
+    {   // terminate，需要deletejob
+        if (WIFSIGNALED(wstate))
+        {
+            // TODO: 不应该在handler中出现printf这类async-unsafe, 替换为safe-library即可
+            printf("Job [%d] (%d) terminated by signal %d\n", job->jid, job->pid, SIGINT);
+        }
         deletejob(jobs, pid);
     }
     sigprocmask(SIG_SETMASK, &pre_one, NULL);
     errno = olderrno;
+
     return;
 }
 
@@ -541,12 +550,10 @@ void sigint_handler(int sig)
         return;
     }
 
-    // TODO: 不应该在handler中出现printf这类async-unsafe, 替换为safe-library即可
-    printf("Job [%d] (%d) terminated by signal %d\n", job->jid, job->pid, sig);
-
     // 有前台进程, forward to it， 后续处理交给chld_handler
     // 注意传递INT信号可能会造成死循环：具体参考https://blog.csdn.net/guozhiyingguo/article/details/53837424
-    kill(pid, SIGINT);
+    // 同时注意，这里kill需要发送给整个进程组
+    kill(-job->pid, SIGINT);
 
     errno = olderrno;
     return;
@@ -575,12 +582,9 @@ void sigtstp_handler(int sig)
         return;
     }
 
-    // TODO: 不应该在handler中出现printf这类async-unsafe, 替换为safe-library即可
-    printf("Job [%d] (%d) stoped by signal %d\n", job->jid, job->pid, sig);
-
     // 有前台进程, forward to it， 后续处理交给chld_handler
     // 注意传递INT信号可能会造成死循环：具体参考https://blog.csdn.net/guozhiyingguo/article/details/53837424
-    kill(pid, SIGTSTP);
+    kill(job->pid, SIGTSTP);
 
     errno = olderrno;
 }
