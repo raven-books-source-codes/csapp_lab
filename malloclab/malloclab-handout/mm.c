@@ -75,8 +75,8 @@ team_t team = {
 #define PREV_PTR(bp)    ((char *)(bp) - WSIZE)
 
 /* Given block ptr bp, compute address of next and previous blocks */
-#define NEXT_BLKP(bp)  ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
-#define PREV_BLKP(bp)  ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE))) 
+#define NEXT_BLKP(bp)  (*(NEXT_PTR(bp)))
+#define PREV_BLKP(bp)  (*(PREV_PTR(bp))) 
 
 //---------------global var-------------------
 static void *free_list_head = NULL;
@@ -88,7 +88,8 @@ static void *coalesce(void *bp);
 static void *find_fit(size_t size);
 static void place(void *bp, size_t size);
 static void *allocate_from_chunk(size_t size);
-static void insert_free_list(void *bp);
+static void insert_to_free_list(void *bp);
+static void delete_from_free_list(void *bp);
 
 /**
  * @brief  打印分配情况
@@ -112,7 +113,7 @@ int mm_init(void)
     }
 
     free_list_tail = free_list_head;
-    PUT(free_list_head, 0); // 初始化root指针为NULL（0）
+    PUT(free_list_head, NULL); // 初始化root指针为NULL（0）
 
     // Extend the empty heap with a free block of CHUNKSIZE bytes
     if((cibrk = extend_heap(CHUNKSIZE/WSIZE)) == NULL){
@@ -287,21 +288,21 @@ static void *find_fit(size_t size)
  */
 static void place(void *bp, size_t size)
 {
-    size_t remain_size;
     size_t origin_size;
-
+    size_t remain_size;
+    size_t min_block_size = ALIGN(4 * WSIZE + 1);
+    
     origin_size = GET_SIZE(HDRP(bp));
     remain_size = origin_size - size;
-    if(remain_size >= 2*DSIZE)  // 剩下的块，最少需要一个double word (header/footer占用一个double word, pyaload不为空，再加上对齐要求)
-    {
+    if(remain_size >= min_block_size){
+        // 可拆分
+    }else{
+        // 不可拆分
+        // 更新header和footer
         PUT(HDRP(bp), PACK(size, 1));
         PUT(FTRP(bp), PACK(size, 1));
-        PUT(HDRP(NEXT_BLKP(bp)), PACK(remain_size, 0));
-        PUT(FTRP(NEXT_BLKP(bp)), PACK(remain_size, 0));
-    }else{
-        // 不足一个双字，保留内部碎片
-        PUT(HDRP(bp), PACK(origin_size, 1));
-        PUT(FTRP(bp), PACK(origin_size, 1));
+        // 移除free list
+        delete_from_free_list(bp);
     }
 }
 
@@ -337,17 +338,57 @@ static void *allocate_from_chunk(size_t size)
     PUT(FTRP(cur_bp), PUT(size, 1));    // set footer
 
     // 插入到free list中
+    insert_to_free_list(cur_bp);
     return cur_bp;
 }
 
 /**
- * @brief 插入到free list中
+ * @brief 将free block插入到free list中
+ * 
+ * @param bp free block的payload的首个地址
+ */
+static void insert_to_free_list(void *bp)
+{
+    void *head = free_list_head;
+    void *p = GET(head);    // 当前首个有效节点 或者 NULL
+    
+    if(p == NULL){
+        PUT(head, bp);
+        free_list_tail = bp;
+        PUT(NEXT_PTR(bp), NULL);
+        PUT(PREV_PTR(bp), head);
+    }
+    else
+    {
+        // 更新当前要插入的节点
+        PUT(NEXT_PTR(bp), p);
+        PUT(PREV_PTR(bp), head);
+        // 更新head
+        PUT(head, bp);
+        // 更新p节点(原首有效节点)
+        PUT(PREV_PTR(p), bp);
+    }
+}
+
+/**
+ * @brief 从free list中删除 bp 所在节点
  * 
  * @param bp 
  */
-static void insert_free_list(void *bp)
+static void delete_from_free_list(void *bp)
 {
+    void *prev_block = PREV_BLKP(bp);
+    void *next_block = NEXXT_BLKP(bp);
 
+    if(free_list_tail == next_block){
+        PUT(NEXT_PTR(prev_block), NULL);
+        free_list_tail = prev_block;
+    }
+    else
+    {
+        PUT(NEXT_PTR(prev_block), next_block);
+        PUT(PREV_BLKP(next_block), prev_block);
+    }
 }
 
 static void print_allocated_info()
