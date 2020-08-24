@@ -1,7 +1,12 @@
 /*
  * mm-naive.c - The fastest, least memory-efficient malloc package.
  * 
- * 隐式链表分配器(csapp书上有源码，这里作为测试用)
+ * 显示链表分配器
+ * 1.默认工作再32bit os, 指针大小为4字节
+ * 2.对齐要求：8字节对齐
+ * 3.采用LIFO的free策略
+ * 4.find策略，首次适配
+ * 5.sbrk无法收缩
  *
  * NOTE TO STUDENTS: Replace this header comment with your own header
  * comment that gives a high level description of your solution.
@@ -61,31 +66,30 @@ team_t team = {
 /* Read the size and allocated fields from address p */
 #define GET_SIZE(p)  (GET(p) & ~0x7)                   
 #define GET_ALLOC(p) (GET(p) & 0x1)                    
-// GET_ALLOC 很容易理解， 至于 GET_SIZE 也是类似，因为我们的 block size 总是双字对齐，所以它的大小总是后3位为0
-// 我们这样做完全 GET(p) & (1111 ... 1000) 完全是 ok 的
 
 /* Given block ptr bp, compute address of its header and footer */
-#define HDRP(bp)       ((char *)(bp) - WSIZE)                     
-#define FTRP(bp)       ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE) 
-// HDRP header address 很容易理解，看图，bp - WSIZE 就是 header 的地址，同时也可以注意，这里我们也做了类型转换，把bp转成char * ，这样来计算才对。
-// FTRP footer address 同样看图，是 bp + 整个块的大小 - DSIZE，就是我们先把bp移到普通快2的hdr， 然后减去两个WSIZE，也就是DSIZE，得到 footer address
-// 这里我们同时也知道了GET_SIZE 是计算普通块1的大小，而不是普通块1的payload
-
+#define HDRP(bp)       ((char *)(bp) - 3*WSIZE)                     
+#define FTRP(bp)       ((char *)(bp) + GET_SIZE(HDRP(bp)) - 3*WSIZE) 
+// 当前block的“NEXT"指针域
+#define NEXT_PTR(bp)    ((char *)(bp) - 2*WSIZE)
+#define PREV_PTR(bp)    ((char *)(bp) - WSIZE)
 
 /* Given block ptr bp, compute address of next and previous blocks */
 #define NEXT_BLKP(bp)  ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
 #define PREV_BLKP(bp)  ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE))) 
-// 这两个计算方法同样也看图，next block pointer，实际上 ((char *)(bp) - WSIZE) 就是 HDRP，header address，我们得到整个块的大小，然后bp 加上整块大小，这里也知道我们的 address 总是指向 payload
-// prev block pointer, ((char *)(bp) - DSIZE) 得到 previous block footer，计算之前的块的大小，然后bp - 之前的块大小，指向 payload
 
 //---------------global var-------------------
-static void *heap_listp = NULL;
-
+static void *free_list_head = NULL;
+static void *free_list_tail = NULL;
+static void *cibrk = NULL;      // chunk inside brk: 用于指向当前已分配的chunk的第一个可用地址, 从cibrk往后的内存空间均可分配
 
 static void *extend_heap(size_t words);
 static void *coalesce(void *bp);
 static void *find_fit(size_t size);
 static void place(void *bp, size_t size);
+static void *allocate_from_chunk(size_t size);
+static void insert_free_list(void *bp);
+
 /**
  * @brief  打印分配情况
  * example:
@@ -95,22 +99,23 @@ static void print_allocated_info();
 
 /* 
  * mm_init - initialize the malloc package.
+ * 主要工作：
+ * 1. 初始化root指针
+ * 2. 通过sbrk在虚拟地址空间中，分配一个chunk
  */
 int mm_init(void)
 {
    // Create the inital empty heap
-    if( (heap_listp = mem_sbrk(4 * WSIZE)) == (void *)-1 ){
+   // 申请一个块，用于存放root指针
+    if( (free_list_head = mem_sbrk(WSIZE)) == (void *)-1 ){
         return -1;
     }
 
-    PUT(heap_listp, 0);
-    PUT(heap_listp + (1 * WSIZE), PACK(DSIZE, 1));
-    PUT(heap_listp + (2 * WSIZE), PACK(DSIZE, 1));
-    PUT(heap_listp + (3 * WSIZE), PACK(0, 1));
-    heap_listp += (2 * WSIZE);
+    free_list_tail = free_list_head;
+    PUT(free_list_head, 0); // 初始化root指针为NULL（0）
 
     // Extend the empty heap with a free block of CHUNKSIZE bytes
-    if(extend_heap(CHUNKSIZE/WSIZE) == NULL){
+    if((cibrk = extend_heap(CHUNKSIZE/WSIZE)) == NULL){
         return -1;
     }
     return 0;
@@ -127,18 +132,21 @@ static void *extend_heap(size_t words)
         return NULL;
     }
 
-    // 初始化free block的header/footer和epilogue header
-    PUT(HDRP(bp), PACK(size, 0));
-    PUT(FTRP(bp), PACK(size, 0));
-    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));
-
     // Coalesce if the previous block was free
+    // TODO: 合并操作检查, 分配一片chunk时，需要检查当前chunk的前面是否有free block，有就需要合并
     return coalesce(bp);
 }
 
 /* 
- * mm_malloc - Allocate a block by incrementing the brk pointer.
- *     Always allocate a block whose size is a multiple of the alignment.
+ * mm_malloc, 根据 size 返回一个指针，该指针指向这个block的payload首地址
+ * 主要工作：
+ * 1. size的round操作，满足最小块需求以及对齐限制
+ * 2. 首先检查当前free list中是否有可以满足 asize(adjusted size) ，有则place，（place可能需要split)
+ * 无则第3步
+ * 3. 从当前heap中分配新的free block， 如果当前heap空间够用，则直接分配。不够用，则转第4步
+ * 4. 通过sbrk分配一片chunk， 分配新的block给当前请求，最后返回
+ * 第3/4步转至allocate_from_chunk函数
+ * 
  */
 void *mm_malloc(size_t size)
 {
@@ -149,28 +157,21 @@ void *mm_malloc(size_t size)
     if (size == 0)
         return NULL;
 
-    // Ajust block size to include overhea and alignment reqs;
-    if (size <= DSIZE)
-    {
-        asize = 2 * DSIZE;
-    }
-    else
-    {
-        asize = DSIZE * ((size + (DSIZE) + (DSIZE - 1)) / DSIZE); // 超过8字节，加上header/footer块开销，向上取整保证是8的倍数
-    }
+    // step1: round size 满足最小块和对齐限制
+    asize = ALIGN(2 * DSIZE + size);    // 2*DSIZE = header+ footer + next + prev
 
-    // Search the free list for a fit
+    // step2: 从free list 中找free block
     if ((bp = find_fit(asize)) != NULL)
     {
         place(bp, asize);
     }
+    //free list中找不到
     else
     {
-        // No fit found. Get more memory and place the block
-        extendsize = MAX(asize, CHUNKSIZE);
-        if ((bp = extend_heap(extendsize / WSIZE)) == NULL)
+        // step3: 从当前chunk中分配
+        if((bp = allocate_from_chunk(asize)) == NULL)
         {
-            return NULL;
+            return NULL;  
         }
         place(bp, asize);
     }
@@ -236,7 +237,6 @@ static void *coalesce(void *bp)
         size += GET_SIZE(HDRP(next_block));
         PUT(HDRP(bp), PACK(size, 0));
         PUT(FTRP(next_block), PACK(size, 0));
-        // TODO: 其余两个tag不用清空？ 正常情况确实不用清空。
     }
 
     else if(!pre_alloc && next_alloc){  // case 3: 前free，后分配
@@ -269,7 +269,7 @@ static void *find_fit(size_t size)
 {
     void *bp ;      
 
-    for (bp = NEXT_BLKP(heap_listp); GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp))
+    for (bp = NEXT_BLKP(free_list_head); GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp))
     {
         if(GET_ALLOC(HDRP(bp)) == 0 && size <= GET_SIZE(HDRP(bp)))
         {
@@ -305,6 +305,51 @@ static void place(void *bp, size_t size)
     }
 }
 
+/**
+ * @brief 从chunk中分配满足当前需求的块
+ * 
+ * @param size  需求size
+ * @return void*  成功：当前能够分配的块的首地址
+ *                失败： NULL， 一般只在run out out memory时才会NULL 
+ */
+static void *allocate_from_chunk(size_t size)
+{
+    char *cur_bp = (char *)cibrk;
+    // mem_max_addr指向当前sbrk，即第一个不可用块，当前可用chunk后的第一个字节
+    char *mem_max_addr = (char *)mem_heap_hi() + 1;
+    size_t remain_size = (size_t)(mem_max_addr - cur_bp);
+    size_t extend_size;
+
+    // 满足需求：直接分配
+    if(size > remain_size){
+        // 不满足需求，需要扩展chunk
+        // No fit found. Get more memory and place the block
+        extend_size = MAX(size, CHUNKSIZE);
+        if ((cur_bp = extend_heap(extend_size / WSIZE)) == NULL)
+        {
+            return NULL;
+        }
+    }
+
+    // set block的基本信息 
+    cur_bp += 3 * WSIZE;    // point to payload
+    PUT(HDRP(cur_bp), PACK(size, 1));   // set header
+    PUT(FTRP(cur_bp), PUT(size, 1));    // set footer
+
+    // 插入到free list中
+    return cur_bp;
+}
+
+/**
+ * @brief 插入到free list中
+ * 
+ * @param bp 
+ */
+static void insert_free_list(void *bp)
+{
+
+}
+
 static void print_allocated_info()
 {
     void *bp;
@@ -312,7 +357,7 @@ static void print_allocated_info()
 
     printf("\n=============start allocated info===========\n");
     idx = 0;
-    for (bp = NEXT_BLKP(heap_listp); GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp))
+    for (bp = NEXT_BLKP(free_list_head); GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp))
     {
         if(GET_ALLOC(HDRP(bp)) == 1)
         {
