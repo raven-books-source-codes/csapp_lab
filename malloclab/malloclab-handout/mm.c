@@ -20,7 +20,7 @@
 #include "mm.h"
 #include "memlib.h"
 
-#define DEBUG
+// #define DEBUG
 
 /*********************************************************
  * NOTE TO STUDENTS: Before you do anything else, please
@@ -90,8 +90,6 @@ team_t team = {
 
 //---------------global var-------------------
 static void *free_list_head = NULL;
-static void *free_list_tail = NULL;
-static void *cibrk = NULL; // chunk inside brk: 用于指向当前已分配的chunk的第一个可用地址, 从cibrk往后的内存空间均可分配
 
 static void *extend_heap(size_t words);
 static void coalesce(void *bp);
@@ -104,13 +102,11 @@ static void *case1(void *bp);
 static void *case2(void *bp);
 static void *case3(void *bp);
 static void *case4(void *bp);
-
-/**
- * @brief  打印分配情况
- * example:
- * payload 1 : start address : end address 
- */
+static void debug();
 static void print_allocated_info();
+static void print_free_blocks_info();
+static void consistent_check();
+static int is_in_free_list(void *bp);
 
 /* 
  * mm_init - initialize the malloc package.
@@ -124,14 +120,13 @@ int mm_init(void)
     // 申请一个块，用于存放root指针
     char *init_block_p;
     size_t min_block = MIN_BLOCK;
-    if ((cibrk = mem_sbrk(MIN_BLOCK+WSIZE)) == (void *)-1)
+    if ((init_block_p = mem_sbrk(MIN_BLOCK + WSIZE)) == (void *)-1)
     {
         return -1;
     }
-    init_block_p = (char *)(cibrk) + WSIZE;  // 跳过首个对齐块
+    init_block_p = (char *)(init_block_p) + WSIZE; // 跳过首个对齐块
 
     free_list_head = init_block_p + 3 * WSIZE;
-    free_list_tail = free_list_head;
     PUT(PREV_PTR(free_list_head), NULL);
     PUT(NEXT_PTR(free_list_head), NULL); // 初始化root指针为NULL（0）
     PUT(HDRP(free_list_head), PACK(MIN_BLOCK, 1));
@@ -143,44 +138,6 @@ int mm_init(void)
         return -1;
     }
     return 0;
-}
-
-/**
- * @brief 扩展当前heap
- * 
- * @param words  需要扩展的words
- * @return void* 当前可用块的payload首地址
- */
-static void *extend_heap(size_t words)
-{
-    char *bp;
-    char *prev_blockp;
-    size_t size;
-
-    /* Allocate an even number of words to maintain alignment */
-    size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE;
-    if ((long)(cibrk = mem_sbrk(size)) == -1)
-    {
-        return NULL;
-    }
-
-    bp = (char *)(cibrk) + 3 * WSIZE; // point to payload
-    // set block的基本信息
-    PUT(HDRP(bp), PACK(size, 0)); // set header
-    PUT(FTRP(bp), PACK(size, 0)); // set footer
-
-    // Coalesce if the previous block was free
-    prev_blockp = PREV_BLKP(bp);
-    if (!GET_ALLOC(HDRP(prev_blockp)))
-    {
-        // 合并
-        size_t prev_bsize = GET_SIZE(HDRP(prev_blockp));
-        prev_bsize += size;
-        PUT(HDRP(prev_blockp), PACK(size, 0));
-        PUT(FTRP(prev_blockp), PACK(size, 0));
-        bp = prev_blockp;
-    }
-    return bp;
 }
 
 /* 
@@ -224,7 +181,7 @@ void *mm_malloc(size_t size)
 
 #ifdef DEBUG
     printf("malloc\n");
-    print_allocated_info();
+    debug();
 #endif
     return bp;
 }
@@ -242,7 +199,7 @@ void mm_free(void *ptr)
 
 #ifdef DEBUG
     printf("free\n");
-    print_allocated_info();
+    debug();
 #endif
 }
 
@@ -264,6 +221,34 @@ void *mm_realloc(void *ptr, size_t size)
     memcpy(newptr, oldptr, copySize);
     mm_free(oldptr);
     return newptr;
+}
+
+/**
+ * @brief 扩展当前heap
+ * 
+ * @param words  需要扩展的words
+ * @return void* 当前可用块的payload首地址
+ */
+static void *extend_heap(size_t words)
+{
+    char *bp;
+    char *prev_blockp;
+    size_t size;
+
+    /* Allocate an even number of words to maintain alignment */
+    size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE;
+    if ((long)(bp = mem_sbrk(size)) == -1)
+    {
+        return NULL;
+    }
+    bp = (char *)(bp) + 3 * WSIZE; // point to payload
+    // set 本块信息
+    PUT(HDRP(bp), PACK(size, 0));
+    PUT(FTRP(bp), PACK(size, 0));
+
+    // 插入到free list中
+    insert_to_free_list(bp);
+    return bp;
 }
 
 /**
@@ -324,30 +309,31 @@ static void *case3(void *bp)
 {
     char *prev_blockp = PREV_BLKP(bp);
     char *next_blockp;
+    char *prev_free_blockp;
+    char *next_free_blockp;
     size_t size = GET_SIZE(HDRP(bp)) + GET_SIZE(HDRP(prev_blockp));
 
     // 更新块大小
     PUT(HDRP(prev_blockp), PACK(size, 0));
-    PUT(FTRP(bp), PACK(size, 0));
-    bp = prev_blockp;
+    PUT(FTRP(prev_blockp), PACK(size, 0));
 
     // 找到前后free块并更新
-    next_blockp = NEXT_FREE_BLKP(prev_blockp);
-    prev_blockp = PREV_FREE_BLKP(prev_blockp);
+    next_free_blockp = NEXT_FREE_BLKP(prev_blockp);
+    prev_free_blockp = PREV_FREE_BLKP(prev_blockp);
 
     // 边界检查
-    if (next_blockp == NULL)
+    if (next_free_blockp == NULL)
     {
-        PUT(NEXT_PTR(prev_blockp), NULL);
+        PUT(NEXT_PTR(prev_free_blockp), NULL);
     }
     else
     {
-        PUT(NEXT_PTR(prev_blockp), next_blockp);
-        PUT(PREV_PTR(next_blockp), prev_blockp);
+        PUT(NEXT_PTR(prev_free_blockp), next_free_blockp);
+        PUT(PREV_PTR(next_free_blockp), prev_free_blockp);
     }
 
     // LIFO策略，插入到free list的头部
-    insert_to_free_list(bp);
+    insert_to_free_list(prev_blockp);
     return bp;
 }
 
@@ -371,9 +357,12 @@ static void *case4(void *bp)
     next_blockp = NEXT_BLKP(bp);
 
     // 更新size
-    size = GET_SIZE(HDRP(prev_blockp)) + GET_SIZE(HDRP(bp)) + GET_SIZE(next_blockp);
+    size_t size1 = GET_SIZE(HDRP(prev_blockp));
+    size_t size2 = GET_SIZE(HDRP(bp));
+    size_t size3 = GET_SIZE(HDRP(next_blockp));
+    size = size1 + size2 + size3;
     PUT(HDRP(prev_blockp), PACK(size, 0));
-    PUT(FTRP(next_blockp), PUT(size, 0));
+    PUT(FTRP(next_blockp),PACK(size, 0));
     bp = prev_blockp;
 
     // 更新前半部 free block指针
@@ -423,7 +412,7 @@ static void coalesce(void *bp)
     size_t next_alloc;
 
     if (next_blockp >= mem_max_addr)
-    {   // next_block超过heap的上边界，只用考虑prev_blockp
+    { // next_block超过heap的上边界，只用考虑prev_blockp
         if (!prev_alloc)
         {
             case3(bp);
@@ -435,19 +424,18 @@ static void coalesce(void *bp)
     }
     else
     {
-        // next_block未超过heap的上边界
         next_alloc = GET_ALLOC(HDRP(next_blockp));
         if (prev_alloc && next_alloc)
         { // case 1: 前后都已经分配
             case1(bp);
         }
         else if (!prev_alloc && next_alloc)
-        { //case 2: 前未分配，后分配
-            case2(bp);
+        { //case 3: 前未分配，后分配
+            case3(bp);
         }
         else if (prev_alloc && !next_alloc)
-        { // case 3: 前分配，后未分配
-            case3(bp);
+        { // case 2: 前分配，后未分配
+            case2(bp);
         }
         else
         { // case 4: 前后都未分配
@@ -469,7 +457,7 @@ static void *find_fit(size_t size)
     void *bp;
 
     // free list当前为空
-    if (free_list_head == free_list_tail)
+    if (NEXT_PTR(free_list_head) == NULL)
     {
         return NULL;
     }
@@ -500,20 +488,24 @@ static void place(void *bp, size_t size)
     if (remain_size >= MIN_BLOCK)
     {
         // 可拆分
-        // 设置分配的块
-        PUT(HDRP(bp), PACK(size, 1));
-        PUT(FTRP(bp), PACK(size, 1));
         // 设置拆分后剩下的块的size和allocate情况
-        char *remain_blockp = SPLITED_REMAIN_BLKP(bp);
+        char *remain_blockp = (char *)(bp) + size;
         PUT(HDRP(remain_blockp), PACK(remain_size, 0));
         PUT(FTRP(remain_blockp), PACK(remain_size, 0));
         // 更新指针，将剩下块加入到free list中
-        PUT(NEXT_PTR(remain_blockp), NEXT_FREE_BLKP(bp));
-        PUT(PREV_PTR(remain_blockp), PREV_FREE_BLKP(bp));
         char *prev_blockp = PREV_FREE_BLKP(bp);
         char *next_blockp = NEXT_FREE_BLKP(bp);
+        PUT(NEXT_PTR(remain_blockp), next_blockp);
+        PUT(PREV_PTR(remain_blockp), prev_blockp);
         PUT(NEXT_PTR(prev_blockp), remain_blockp);
-        PUT(PREV_PTR(next_blockp), remain_blockp);
+        if (next_blockp != NULL)
+        {
+            PUT(PREV_PTR(next_blockp), remain_blockp);
+        }
+
+        // 设置分配的块
+        PUT(HDRP(bp), PACK(size, 1));
+        PUT(FTRP(bp), PACK(size, 1));
         // 断开原block与free list的连接
         PUT(NEXT_PTR(bp), NULL);
         PUT(PREV_PTR(bp), NULL);
@@ -522,8 +514,8 @@ static void place(void *bp, size_t size)
     {
         // 不可拆分
         // 更新header和footer
-        PUT(HDRP(bp), PACK(size, 1));
-        PUT(FTRP(bp), PACK(size, 1));
+        PUT(HDRP(bp), PACK(origin_size, 1));
+        PUT(FTRP(bp), PACK(origin_size, 1));
         // 移除free list
         delete_from_free_list(bp);
     }
@@ -538,25 +530,13 @@ static void place(void *bp, size_t size)
  */
 static void *allocate_from_chunk(size_t size)
 {
-    char *cur_bp = (char *)cibrk;
-    // mem_max_addr指向当前sbrk，即第一个不可用块，当前可用chunk后的第一个字节
-    char *mem_max_addr = (char *)mem_heap_hi() + 1;
-    size_t remain_size = (size_t)(mem_max_addr - cur_bp);
-    size_t extend_size;
-
-    if (size >= remain_size)
+    void *cur_bp = NULL;
+    size_t extend_size = MAX(size, CHUNKSIZE);
+    if ((cur_bp = extend_heap(extend_size / WSIZE)) == NULL)
     {
-        // 不满足需求，需要扩展chunk
-        // No fit found. Get more memory and place the block
-        extend_size = MAX(size, CHUNKSIZE);
-        if ((cur_bp = extend_heap(extend_size / WSIZE)) == NULL)
-        {
-            return NULL;
-        }
+        return NULL;
     }
 
-    // 插入到free list中
-    insert_to_free_list(cur_bp);
     return cur_bp;
 }
 
@@ -570,10 +550,14 @@ static void insert_to_free_list(void *bp)
     void *head = free_list_head;
     void *p = NEXT_FREE_BLKP(head); // 当前首个有效节点 或者 NULL
 
+    if (p == bp)
+    {
+        return;
+    }
+
     if (p == NULL)
     {
         PUT(NEXT_PTR(head), bp);
-        free_list_tail = bp;
         PUT(NEXT_PTR(bp), NULL);
         PUT(PREV_PTR(bp), head);
     }
@@ -583,7 +567,7 @@ static void insert_to_free_list(void *bp)
         PUT(NEXT_PTR(bp), p);
         PUT(PREV_PTR(bp), head);
         // 更新head
-        PUT(head, bp);
+        PUT(NEXT_PTR(head), bp);
         // 更新p节点(原首有效节点)
         PUT(PREV_PTR(p), bp);
     }
@@ -596,20 +580,45 @@ static void insert_to_free_list(void *bp)
  */
 static void delete_from_free_list(void *bp)
 {
-    void *prev_block = PREV_FREE_BLKP(bp);
-    void *next_block = NEXT_FREE_BLKP(bp);
+    void *prev_free_block = PREV_FREE_BLKP(bp);
+    void *next_free_block = NEXT_FREE_BLKP(bp);
 
-    if (next_block == NULL)
+    if (next_free_block == NULL)
     {
-        PUT(NEXT_PTR(prev_block), NULL);
-        free_list_tail = prev_block;
+        PUT(NEXT_PTR(prev_free_block), NULL);
     }
     else
     {
-        PUT(NEXT_PTR(prev_block), next_block);
-        PUT(PREV_FREE_BLKP(next_block), prev_block);
+        PUT(NEXT_PTR(prev_free_block), next_free_block);
+        PUT(PREV_PTR(next_free_block), prev_free_block);
+        // 断开连接
+        PUT(NEXT_PTR(bp), NULL);
+        PUT(PREV_PTR(bp), NULL);
     }
 }
+
+/**
+ * @brief 打印free blocks信息
+ * 
+ */
+static void print_free_blocks_info()
+{
+    void *bp;
+    size_t idx = 0;
+
+    printf("=============start free blocks info===========\n");
+    for (bp = NEXT_FREE_BLKP(free_list_head); bp != NULL; bp = NEXT_FREE_BLKP(bp))
+    {
+        printf("free block%d range %p  %p size=%d, payload %p  %p block size=%d\n", idx, HDRP(bp), FTRP(bp) + WSIZE, FTRP(bp) - HDRP(bp) + WSIZE, (char *)bp, FTRP(bp), FTRP(bp) - (char *)(bp));
+    }
+    printf("=============end free blocks info===========\n\n");
+}
+
+/**
+ * @brief  打印分配情况
+ * example:
+ * payload 1 : start address : end address 
+ */
 
 static void print_allocated_info()
 {
@@ -617,15 +626,59 @@ static void print_allocated_info()
     size_t idx = 0;
     char *mem_max_addr = mem_heap_hi();
 
-    printf("\n=============start allocated info===========\n");
+    printf("=============start allocated info===========\n");
     for (bp = NEXT_BLKP(free_list_head); bp < mem_max_addr && GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp))
     {
         if (GET_ALLOC(HDRP(bp)) == 1)
         {
             ++idx;
             size_t size = GET_SIZE(HDRP(bp));
-            printf("payload %d %p:%p\n", idx, (char *)bp, (char *)(bp) + size - DSIZE);
+            printf("block%d range %p  %p size=%d, payload %p  %p block size=%d\n", idx, HDRP(bp), FTRP(bp) + WSIZE, FTRP(bp) - HDRP(bp) + WSIZE, (char *)bp, FTRP(bp), FTRP(bp) - (char *)(bp));
         }
     }
     printf("=============end allocated info===========\n\n");
+}
+
+static void consistent_check()
+{
+    // 检查free list中的所有block都为free
+    void *bp;
+    void *mem_max_heap = mem_heap_hi();
+
+    for (bp = NEXT_FREE_BLKP(free_list_head); bp != NULL; bp = NEXT_FREE_BLKP(bp))
+    {
+        if (GET_ALLOC(HDRP(bp)))
+        {
+            printf("%d free list中存在块已分配\n", __LINE__);
+        }
+    }
+
+    // 检查是否所有free block都在free list中
+    for (bp = NEXT_BLKP(free_list_head); bp <= mem_max_heap; bp = NEXT_BLKP(bp))
+    {
+        if (!GET_ALLOC(HDRP(bp)) && !is_in_free_list(bp))
+        {
+            printf("%d 存在free block %p 不在free list中\n", __LINE__, bp);
+        }
+    }
+}
+
+static int is_in_free_list(void *bp)
+{
+    void *p;
+    for (p = NEXT_FREE_BLKP(free_list_head); p != NULL; p = NEXT_FREE_BLKP(p))
+    {
+        if (p == bp)
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void debug()
+{
+    print_allocated_info();
+    print_free_blocks_info();
+    // consistent_check();
 }
