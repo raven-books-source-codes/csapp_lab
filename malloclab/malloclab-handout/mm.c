@@ -58,7 +58,6 @@ team_t team = {
 /* Read and write a word at address p */
 #define GET(p) (*(unsigned int *)(p))
 #define PUT(p, val) (*(unsigned int *)(p) = (val))
-// 这里有很多强制类型转换，书上提到因为p是一个 void * 指针
 
 /* Read the size and allocated fields from address p */
 #define GET_SIZE(p) (GET(p) & ~0x7)
@@ -67,6 +66,7 @@ team_t team = {
 /* Given block ptr bp, compute address of its header and footer */
 #define HDRP(bp) ((char *)(bp)-3 * WSIZE)
 #define FTRP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp)) - 4 * WSIZE)
+
 // free block运算：计算当前block的“NEXT"指针域
 // bp:当前block的payload首地址
 #define NEXT_PTR(bp) ((char *)(bp)-2 * WSIZE)
@@ -212,6 +212,29 @@ void *mm_realloc(void *ptr, size_t size)
     void *newptr;
     size_t copySize;
 
+    // if (ptr == NULL)
+    // {
+    //     return mm_malloc(size);
+    // }
+    // if (size == 0)
+    // {
+    //     mm_free(ptr);
+    //     return NULL;
+    // }
+
+    // // 当前block是否能满足realloc需求
+    // size_t origin_size = GET_SIZE(HDRP(ptr));
+    // if (origin_size > ALIGN(size+4*WSIZE))
+    // {
+    //     // 重新初始化
+    //     PUT(HDRP(ptr), PACK(origin_size, 0));
+    //     PUT(FTRP(ptr), PACK(origin_size, 0));
+    //     insert_to_free_list(ptr);
+    //     place(ptr, ALIGN(size+4*WSIZE));
+    //     return ptr;
+    // }
+    // else
+    
     newptr = mm_malloc(size);
     if (newptr == NULL)
         return NULL;
@@ -220,6 +243,7 @@ void *mm_realloc(void *ptr, size_t size)
         copySize = size;
     memcpy(newptr, oldptr, copySize);
     mm_free(oldptr);
+    
     return newptr;
 }
 
@@ -273,6 +297,8 @@ static void *case2(void *bp)
 {
     void *prev_blockp;
     void *next_blockp = NEXT_BLKP(bp);
+    void *prev_free_blockp;
+    void *next_free_blockp;
     size_t size = GET_SIZE(HDRP(bp)) + GET_SIZE(HDRP(next_blockp));
 
     // 更新块大小
@@ -280,19 +306,19 @@ static void *case2(void *bp)
     PUT(FTRP(next_blockp), PACK(size, 0));
 
     // 更新前后free block指针
-    prev_blockp = PREV_FREE_BLKP(next_blockp);
-    next_blockp = NEXT_FREE_BLKP(next_blockp);
+    prev_free_blockp = PREV_FREE_BLKP(next_blockp);
+    next_free_blockp = NEXT_FREE_BLKP(next_blockp);
 
     // 边界检查
     // 边界检查
-    if (next_blockp == NULL)
+    if (next_free_blockp == NULL)
     {
-        PUT(NEXT_PTR(prev_blockp), NULL);
+        PUT(NEXT_PTR(prev_free_blockp), NULL);
     }
     else
     {
-        PUT(NEXT_PTR(prev_blockp), next_blockp);
-        PUT(PREV_PTR(next_blockp), prev_blockp);
+        PUT(NEXT_PTR(prev_free_blockp), next_free_blockp);
+        PUT(PREV_PTR(next_free_blockp), prev_free_blockp);
     }
 
     insert_to_free_list(bp);
@@ -362,7 +388,7 @@ static void *case4(void *bp)
     size_t size3 = GET_SIZE(HDRP(next_blockp));
     size = size1 + size2 + size3;
     PUT(HDRP(prev_blockp), PACK(size, 0));
-    PUT(FTRP(next_blockp),PACK(size, 0));
+    PUT(FTRP(next_blockp), PACK(size, 0));
     bp = prev_blockp;
 
     // 更新前半部 free block指针
@@ -456,12 +482,6 @@ static void *find_fit(size_t size)
 {
     void *bp;
 
-    // free list当前为空
-    if (NEXT_PTR(free_list_head) == NULL)
-    {
-        return NULL;
-    }
-
     for (bp = NEXT_FREE_BLKP(free_list_head); bp != NULL && GET_SIZE(HDRP(bp)) > 0; bp = NEXT_FREE_BLKP(bp))
     {
         if (GET_ALLOC(HDRP(bp)) == 0 && size <= GET_SIZE(HDRP(bp)))
@@ -516,7 +536,7 @@ static void place(void *bp, size_t size)
         // 更新header和footer
         PUT(HDRP(bp), PACK(origin_size, 1));
         PUT(FTRP(bp), PACK(origin_size, 1));
-        // 移除free list
+        // 移除free block from free list
         delete_from_free_list(bp);
     }
 }
@@ -549,11 +569,6 @@ static void insert_to_free_list(void *bp)
 {
     void *head = free_list_head;
     void *p = NEXT_FREE_BLKP(head); // 当前首个有效节点 或者 NULL
-
-    if (p == bp)
-    {
-        return;
-    }
 
     if (p == NULL)
     {
@@ -680,5 +695,5 @@ static void debug()
 {
     print_allocated_info();
     print_free_blocks_info();
-    // consistent_check();
+    consistent_check();
 }
