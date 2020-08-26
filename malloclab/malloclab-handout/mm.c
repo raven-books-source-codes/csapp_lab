@@ -2,14 +2,12 @@
  * mm-naive.c - The fastest, least memory-efficient malloc package.
  * 
  * 显示链表分配器
- * 1.默认工作再32bit os, 指针大小为4字节
+ * 1.默认工作在32bit os, 指针大小为4字节
  * 2.对齐要求：8字节对齐
  * 3.采用LIFO的free策略
  * 4.find策略，首次适配
  * 5.sbrk无法收缩
  *
- * NOTE TO STUDENTS: Replace this header comment with your own header
- * comment that gives a high level description of your solution.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,7 +45,7 @@ team_t team = {
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
 
 #define WSIZE 4             /* Word and header/footer size (bytes) */
-#define DSIZE 8             /* Double word size (bytes) */
+#define DSIZE 8
 #define CHUNKSIZE (1 << 12) /* Extend heap by this amount (bytes) */
 
 #define MAX(x, y) ((x) > (y) ? (x) : (y))
@@ -57,7 +55,7 @@ team_t team = {
 
 /* Read and write a word at address p */
 #define GET(p) (*(unsigned int *)(p))
-#define PUT(p, val) (*(unsigned int *)(p) = (val))
+#define PUT(p, val) (*(unsigned int *)(p) = (unsigned int)(val))
 
 /* Read the size and allocated fields from address p */
 #define GET_SIZE(p) (GET(p) & ~0x7)
@@ -85,10 +83,7 @@ team_t team = {
 // 最小块
 #define MIN_BLOCK ALIGN(4 * WSIZE + 1)
 
-// 获取split后的remain block
-#define SPLITED_REMAIN_BLKP(bp) (FTRP(bp) + 4 * WSIZE)
-
-//---------------global var-------------------
+//---------------global declaration-------------------
 static void *free_list_head = NULL;
 
 static void *extend_heap(size_t words);
@@ -116,10 +111,8 @@ static int is_in_free_list(void *bp);
  */
 int mm_init(void)
 {
-    // Create the inital empty heap
     // 申请一个块，用于存放root指针
     char *init_block_p;
-    size_t min_block = MIN_BLOCK;
     if ((init_block_p = mem_sbrk(MIN_BLOCK + WSIZE)) == (void *)-1)
     {
         return -1;
@@ -146,15 +139,12 @@ int mm_init(void)
  * 1. size的round操作，满足最小块需求以及对齐限制
  * 2. 首先检查当前free list中是否有可以满足 asize(adjusted size) ，有则place，（place可能需要split)
  * 无则第3步
- * 3. 从当前heap中分配新的free block， 如果当前heap空间够用，则直接分配。不够用，则转第4步
- * 4. 通过sbrk分配一片chunk， 分配新的block给当前请求，最后返回
- * 第3/4步转至allocate_from_chunk函数
+ * 3. 从当前heap中分配新的free block， 插入到free list中，然后place
  * 
  */
 void *mm_malloc(size_t size)
 {
     size_t asize;      // Adjusted block size
-    size_t extendsize; // Amount to extend heap if no fit
     char *bp;
 
     if (size == 0)
@@ -256,7 +246,6 @@ void *mm_realloc(void *ptr, size_t size)
 static void *extend_heap(size_t words)
 {
     char *bp;
-    char *prev_blockp;
     size_t size;
 
     /* Allocate an even number of words to maintain alignment */
@@ -295,7 +284,6 @@ static void *case1(void *bp)
  */
 static void *case2(void *bp)
 {
-    void *prev_blockp;
     void *next_blockp = NEXT_BLKP(bp);
     void *prev_free_blockp;
     void *next_free_blockp;
@@ -309,7 +297,6 @@ static void *case2(void *bp)
     prev_free_blockp = PREV_FREE_BLKP(next_blockp);
     next_free_blockp = NEXT_FREE_BLKP(next_blockp);
 
-    // 边界检查
     // 边界检查
     if (next_free_blockp == NULL)
     {
@@ -334,7 +321,6 @@ static void *case2(void *bp)
 static void *case3(void *bp)
 {
     char *prev_blockp = PREV_BLKP(bp);
-    char *next_blockp;
     char *prev_free_blockp;
     char *next_free_blockp;
     size_t size = GET_SIZE(HDRP(bp)) + GET_SIZE(HDRP(prev_blockp));
@@ -419,6 +405,7 @@ static void *case4(void *bp)
 
     // 根据LIFO策略插入free list
     insert_to_free_list(bp);
+    return bp;
 }
 
 /**
@@ -433,7 +420,6 @@ static void coalesce(void *bp)
     char *prev_blockp = PREV_BLKP(bp);
     char *next_blockp = NEXT_BLKP(bp);
     char *mem_max_addr = (char *)mem_heap_hi() + 1; // heap的上边界
-    size_t size = GET_SIZE(HDRP(bp));
     size_t prev_alloc = GET_ALLOC(HDRP(prev_blockp));
     size_t next_alloc;
 
@@ -468,7 +454,6 @@ static void coalesce(void *bp)
             case4(bp);
         }
     }
-    return bp;
 }
 
 /**
@@ -637,7 +622,7 @@ static void print_free_blocks_info()
 
 static void print_allocated_info()
 {
-    void *bp;
+    char *bp;
     size_t idx = 0;
     char *mem_max_addr = mem_heap_hi();
 
@@ -647,7 +632,6 @@ static void print_allocated_info()
         if (GET_ALLOC(HDRP(bp)) == 1)
         {
             ++idx;
-            size_t size = GET_SIZE(HDRP(bp));
             printf("block%d range %p  %p size=%d, payload %p  %p block size=%d\n", idx, HDRP(bp), FTRP(bp) + WSIZE, FTRP(bp) - HDRP(bp) + WSIZE, (char *)bp, FTRP(bp), FTRP(bp) - (char *)(bp));
         }
     }
@@ -657,8 +641,8 @@ static void print_allocated_info()
 static void consistent_check()
 {
     // 检查free list中的所有block都为free
-    void *bp;
-    void *mem_max_heap = mem_heap_hi();
+    char *bp;
+    char *mem_max_heap = mem_heap_hi();
 
     for (bp = NEXT_FREE_BLKP(free_list_head); bp != NULL; bp = NEXT_FREE_BLKP(bp))
     {
