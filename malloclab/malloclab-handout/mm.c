@@ -126,7 +126,7 @@ int mm_init(void)
     PUT(FTRP(free_list_head), PACK(MIN_BLOCK, 1));
 
     // Extend the empty heap with a free block of CHUNKSIZE bytes
-    if ((extend_heap(CHUNKSIZE / WSIZE)) == NULL)
+    if ((allocate_from_chunk(CHUNKSIZE)) == NULL)
     {
         return -1;
     }
@@ -240,7 +240,7 @@ void *mm_realloc(void *ptr, size_t size)
 /**
  * @brief 扩展当前heap
  * 
- * @param words  需要扩展的words
+ * @param words  需要扩展的words, 字为单位
  * @return void* 当前可用块的payload首地址
  */
 static void *extend_heap(size_t words)
@@ -529,7 +529,7 @@ static void place(void *bp, size_t size)
 /**
  * @brief 从chunk中分配满足当前需求的块
  * 
- * @param size  需求size
+ * @param size  需求size 字节为单位
  * @return void*  成功：当前能够分配的块的首地址
  *                失败： NULL， 一般只在run out out memory时才会NULL 
  */
