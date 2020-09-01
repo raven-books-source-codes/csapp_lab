@@ -490,39 +490,44 @@ void sigchld_handler(int sig)
     sigset_t mask_all, pre_one;
     int pid, wstate;
     struct job_t *job; // 触发本次sigchld_handler的job
-
     sigfillset(&mask_all);
 
-    pid = waitpid(-1, &wstate, WNOHANG | WUNTRACED);
-    job = getjobpid(jobs, pid);
-    if (!job)
+    while (1)       // 多个child terminate时，只有一个child_handler会被调用，所以多次回收
     {
-        return;
-    }
+        pid = waitpid(-1, &wstate, WNOHANG | WUNTRACED);
+        if(pid < 0)
+            break;
 
-    // waitpid调用返回有两种情况：
-    // 1. 子进程terminate
-    // 2. 通过信号，被stop了，如用户键入 ctrl+z
-    sigprocmask(SIG_SETMASK, &mask_all, &pre_one);
-    if (WIFSTOPPED(wstate))
-    { 
-        // stoped，更新状态即可
-        // TODO: 不应该在handler中出现printf这类async-unsafe, 替换为safe-library即可
-        printf("Job [%d] (%d) stoped by signal %d\n", job->jid, job->pid, SIGTSTP);
-        job->state = ST;
-    }
-    else
-    {   // terminate，需要deletejob
-        if (WIFSIGNALED(wstate))
+        job = getjobpid(jobs, pid);
+        if (!job)
         {
-            // TODO: 不应该在handler中出现printf这类async-unsafe, 替换为safe-library即可
-            printf("Job [%d] (%d) terminated by signal %d\n", job->jid, job->pid, SIGINT);
+            return;
         }
-        deletejob(jobs, pid);
-    }
-    sigprocmask(SIG_SETMASK, &pre_one, NULL);
-    errno = olderrno;
 
+        // waitpid调用返回有两种情况：
+        // 1. 子进程terminate
+        // 2. 通过信号，被stop了，如用户键入 ctrl+z
+        sigprocmask(SIG_SETMASK, &mask_all, &pre_one);
+        if (WIFSTOPPED(wstate))
+        {
+            // stoped，更新状态即可
+            // TODO: 不应该在handler中出现printf这类async-unsafe, 替换为safe-library即可
+            printf("Job [%d] (%d) stoped by signal %d\n", job->jid, job->pid, SIGTSTP);
+            job->state = ST;
+        }
+        else
+        { // terminate，需要deletejob
+            if (WIFSIGNALED(wstate))
+            {
+                // TODO: 不应该在handler中出现printf这类async-unsafe, 替换为safe-library即可
+                printf("Job [%d] (%d) terminated by signal %d\n", job->jid, job->pid, SIGINT);
+            }
+            deletejob(jobs, pid);
+        }
+        sigprocmask(SIG_SETMASK, &pre_one, NULL);
+    }
+
+    errno = olderrno;
     return;
 }
 
