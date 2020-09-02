@@ -495,7 +495,7 @@ void sigchld_handler(int sig)
     while (1)       // 多个child terminate时，只有一个child_handler会被调用，所以多次回收
     {
         pid = waitpid(-1, &wstate, WNOHANG | WUNTRACED);
-        if(pid < 0)
+        if(pid <= 0)
             break;
 
         job = getjobpid(jobs, pid);
