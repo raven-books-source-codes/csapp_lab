@@ -29,8 +29,7 @@ static void *thread_routine(void *vargs);
 static void proxy(int connd);
 static int parse_request_args(int connfd, char *bufp);
 static char *parse_GET_url(char *line, char *hostname);
-static int fetch_data_from_server(char *host, char *port, char *args,
-                                  char *bufp);
+static int fetch_data_from_server(char *host, char *port, char *args, char *bufp);
 static int send_data_to_client(int connfd, char *bufp, size_t size);
 
 /* 缓存数据 */
