@@ -61,3 +61,13 @@ cmake-build-debug
 build
 
 CMakeLists.txt
+
+proxylab/proxylab-handout/.proxy/
+
+proxylab/proxylab-handout/tiny/
+
+proxylab/proxylab-handout/proxy
+
+proxylab/proxylab-handout/proxy_concurrent
+
+proxylab/proxylab-handout/proxy_single_thread
