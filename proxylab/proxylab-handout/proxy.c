@@ -15,10 +15,9 @@
  */
 #include "log.h"
 #include "sbuf.h"
+#include "csapp.h"
+#include "cache.h"
 
-/* Recommended max cache and object sizes */
-#define MAX_CACHE_SIZE 1049000
-#define MAX_OBJECT_SIZE 102400
 
 /* You won't lose style points for including this long line in your code */
 static const char *user_agent_hdr =
@@ -32,10 +31,11 @@ static const char *user_agent_hdr =
 
 /* global vars defination */
 static sbuf_t sbuf;
+static cache mycache;
 
 /* function declaration */
 static void doit(int fd);
-static int parse_client_request(int connfd, char *uri, char *versoin,
+static int parse_client_request(int connfd, char *uri, char *version,
                                 char *headers, char *hostname, char *port);
 static int convert_request(char *src_uri, char *src_headers, char *src_version,
                            char *dest_uri, char *dest_headers,
@@ -59,6 +59,7 @@ int main(int argc, char const *argv[]) {
     /* init */
     log_set_quiet(false);
     sbuf_init(&sbuf, WORKER_NUM * 3);
+    cache_init(&mycache);
     create_thread_works(WORKER_NUM);
 
     /* parse port from cmd */
@@ -79,10 +80,9 @@ int main(int argc, char const *argv[]) {
                     client_port, BUF_SIZE, 0);
         log_info("Accepted connection from (%s, %s)\n", client_hostname,
                  client_port);
-        /* put task into task queue */
+        /* cache_put task into task queue */
         sbuf_insert(&sbuf, connfd);
     }
-
     return 0;
 }
 
@@ -141,15 +141,29 @@ static void doit(int fd) {
     strcat(request_to_server, "\r\n"); /* end of requst */
     log_info("coneverted request to server:\n%s\n", request_to_server);
 
-    /* fetch data from server */
+    /* fetch data  */
+    /* is data in cache? */
+    cache_item *ci;
+    ci = cache_get(&mycache,request_to_server);
     int read_len = -1;
-    if ((read_len = fetch_data_from_server(request_to_server,
-                                           strlen(request_to_server) + 1,
-                                           hostname, server_port, buf)) == -1) {
-        log_error("fetch data from server failed\n");
-        return;
+    if(ci == NULL){
+        /* fetch from server*/
+        if ((read_len = fetch_data_from_server(request_to_server,
+                                               strlen(request_to_server) + 1,
+                                               hostname, server_port, buf)) == -1) {
+            log_error("fetch data from server failed\n");
+            return;
+        }
+        log_info("fetch data from server sucess %d\n",read_len);
+        
+        /* save to cache */
+        cache_put(&mycache,request_to_server,buf,read_len);
+        log_debug("put data into cache\n");
+    }else{
+        /* fetch from cache */
+        read_len = ci->effect_size;
+        memcpy(buf,ci->data,read_len);
     }
-    log_info("fetch data from server sucess %d\n",read_len);
 
     /* send data to client */
     int write_len = -1;
@@ -166,9 +180,9 @@ static void doit(int fd) {
 
 /**
  * @brief parse request from client
- *        1. get origin uri, and store it into "uri"
- *        2. get origin version, and store it into "version"
- *        3. get origin headers, and store t into "headers"
+ *        1. cache_get origin uri, and store it into "uri"
+ *        2. cache_get origin version, and store it into "version"
+ *        3. cache_get origin headers, and store t into "headers"
  *        4. extract hostname from uri, and store it into "hostname"
  *        5. extract port from uri, and store it into "port"
  *
@@ -197,7 +211,7 @@ static int parse_client_request(int connfd, char *uri, char *version,
 
     rio_readinitb(&rio, connfd);
     /* read request line and headers */
-    /* GET : get uri, versoin field*/
+    /* GET : cache_get uri, versoin field*/
     if (!rio_readlineb(&rio, buf, BUF_SIZE)) {
         return -1;
     }
@@ -207,22 +221,22 @@ static int parse_client_request(int connfd, char *uri, char *version,
         log_error("doest supoort other request method except GET\n");
         return -1;
     }
-    /* get headers */
+    /* cache_get headers */
     if (read_requesthdrs(&rio, headers)) {
         log_error("request headers failed\n");
         return -1;
     }
-    /* get hostname from uri*/
+    /* cache_get hostname from uri*/
     if (read_hostname_port_from_uri(uri, hostname, port)) {
-        log_error("get hostname port failed\n");
+        log_error("cache_get hostname port failed\n");
         return -1;
     }
     return 0;
 }
 
 /**
- * @brief get headers from rp
- *        only get headers which are not include in (Hostname, User-Agent,
+ * @brief cache_get headers from rp
+ *        only cache_get headers which are not include in (Hostname, User-Agent,
  * Connection, Proxy-Connection)
  *
  * @param rp
@@ -230,7 +244,6 @@ static int parse_client_request(int connfd, char *uri, char *version,
  * @return int 0 sucess
  *             -1 failed
  */
-
 /* 1 pass, 0 not pass */
 static inline int will_header_pass_by(char *msg) {
     if (!msg) return 1;
@@ -248,6 +261,7 @@ static inline int will_header_pass_by(char *msg) {
     }
     return 0;
 }
+
 static int read_requesthdrs(rio_t *rp, char *headers) {
     char buf[BUF_SIZE];
     int ret;
@@ -457,9 +471,9 @@ static int send_data_to_client(int fd, char *datap, size_t size) {
 }
 
 /**
- * @brief Create num thread works object
+ * @brief Create pair_num thread works object
  *
- * @param num thread num
+ * @param num thread pair_num
  * @return int 0 sucess
  *             -1 failed
  */

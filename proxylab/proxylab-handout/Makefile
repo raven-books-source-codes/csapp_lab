@@ -8,7 +8,7 @@ CC = gcc
 CFLAGS = -g -Wall
 LDFLAGS = -lpthread
 
-all: proxy proxy_single_thread proxy_concurrent
+all: proxy
 
 csapp.o: csapp.c csapp.h
 	$(CC) $(CFLAGS) -c csapp.c
@@ -16,22 +16,20 @@ csapp.o: csapp.c csapp.h
 proxy.o: proxy.c csapp.h
 	$(CC) $(CFLAGS) -c proxy.c
 
-proxy_single_thread.o: proxy_single_thread.c csapp.h log.h
-	$(CC) $(CFLAGS) -c proxy_single_thread.c
+cache.o: cache.h cache.c
+	$(CC) $(CFLAGS) -c cache.c
 
-proxy_concurrent.o: proxy_concurrent.c csapp.h log.h
-	$(CC) $(CFLAGS) -c proxy_concurrent.c
-
-sbuf.o: sbuf.h
+sbuf.o: sbuf.h sbuf.c
 	$(CC) $(CFLAGS) -c sbuf.c
+
 log.o: log.h
 	$(CC) $(CFLAGS) -c log.c
 
-proxy: proxy.o csapp.o sbuf.o log.o
-	$(CC) $(CFLAGS) proxy.o csapp.o sbuf.o log.o -o proxy $(LDFLAGS)
+proxy: proxy.o csapp.o sbuf.o log.o cache.o
+	$(CC) $(CFLAGS) proxy.o csapp.o sbuf.o cache.o log.o -o proxy $(LDFLAGS)
 
-proxy_single_thread: proxy_single_thread.o csapp.o log.o 
-	$(CC) $(CFLAGS) proxy_single_thread.o csapp.o log.o -o proxy_single_thread $(LDFLAGS)
+test: test.c log.o csapp.o cache.o
+	$(CC) $(CFLAGS) log.o csapp.o cache.o test.c -o test $(LDFLAGS)
 
 # Creates a tarball in ../proxylab-handin.tar that you can then
 # hand in. DO NOT MODIFY THIS!
