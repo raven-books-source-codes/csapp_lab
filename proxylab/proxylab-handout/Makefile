@@ -27,14 +27,11 @@ sbuf.o: sbuf.h
 log.o: log.h
 	$(CC) $(CFLAGS) -c log.c
 
-proxy: proxy_concurrent.o csapp.o sbuf.o log.o
-	$(CC) $(CFLAGS) proxy_concurrent.o csapp.o sbuf.o log.o -o proxy $(LDFLAGS)
+proxy: proxy.o csapp.o sbuf.o log.o
+	$(CC) $(CFLAGS) proxy.o csapp.o sbuf.o log.o -o proxy $(LDFLAGS)
 
 proxy_single_thread: proxy_single_thread.o csapp.o log.o 
 	$(CC) $(CFLAGS) proxy_single_thread.o csapp.o log.o -o proxy_single_thread $(LDFLAGS)
-
-proxy_concurrent: proxy_concurrent.o csapp.o log.o sbuf.o
-	$(CC) $(CFLAGS) proxy_concurrent.o csapp.o log.o sbuf.o -o proxy_concurrent $(LDFLAGS)
 
 # Creates a tarball in ../proxylab-handin.tar that you can then
 # hand in. DO NOT MODIFY THIS!
