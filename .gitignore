@@ -62,12 +62,12 @@ build
 
 CMakeLists.txt
 
-proxylab/proxylab-handout/.proxy/
-
-proxylab/proxylab-handout/tiny/
+proxylab/proxylab-handout/proxy_single_thread
 
 proxylab/proxylab-handout/proxy
 
-proxylab/proxylab-handout/proxy_concurrent
+proxylab/proxylab-handout/tiny/tiny
 
-proxylab/proxylab-handout/proxy_single_thread
+proxylab/proxylab-handout/tiny/cgi-bin/adder
+
+proxylab/proxylab-handout/.proxy/

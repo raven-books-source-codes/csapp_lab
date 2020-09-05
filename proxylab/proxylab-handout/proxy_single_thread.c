@@ -22,7 +22,6 @@ static const char *user_agent_hdr =
     "Firefox/10.0.3\r\n";
 
 /* macros defination */
-#define BUF_SIZE 200
 #define HTTP_PREFIX "http://"
 
 /* global vars defination */
@@ -43,7 +42,7 @@ static int send_data_to_client(int fd, char *datap, size_t size);
 int main(int argc, char const *argv[]) {
     int listenfd, connfd;
     char proxy_port[10];
-    char client_hostname[BUF_SIZE];
+    char client_hostname[MAXLINE];
     char client_port[10];
     socklen_t clientlen;
     struct sockaddr_storage clientaddr;
@@ -81,9 +80,9 @@ int main(int argc, char const *argv[]) {
  * @param fd
  */
 static void doit(int fd) {
-    char src_uri[BUF_SIZE], dest_uri[BUF_SIZE], src_version[BUF_SIZE],
-        dest_version[BUF_SIZE], src_headers[BUF_SIZE], dest_headers[BUF_SIZE],
-        hostname[BUF_SIZE], server_port[BUF_SIZE];
+    char src_uri[MAXLINE], dest_uri[MAXLINE], src_version[MAXLINE],
+        dest_version[MAXLINE], src_headers[MAXLINE], dest_headers[MAXLINE],
+        hostname[MAXLINE], server_port[MAXLINE];
     char *buf = (char *)malloc(sizeof(char) * MAX_OBJECT_SIZE);
     char *request_to_server = (char *)malloc(sizeof(char) * MAXBUF);
     if (!buf || !request_to_server) {
@@ -93,13 +92,13 @@ static void doit(int fd) {
     }
 
     /* init */
-    memset(src_uri, 0, BUF_SIZE);
-    memset(src_version, 0, BUF_SIZE);
-    memset(src_headers, 0, BUF_SIZE);
-    memset(hostname, 0, BUF_SIZE);
-    memset(buf, 0, BUF_SIZE);
-    memset(request_to_server, 0, BUF_SIZE);
-    memset(server_port, 0, BUF_SIZE);
+    memset(src_uri, 0, MAXLINE);
+    memset(src_version, 0, MAXLINE);
+    memset(src_headers, 0, MAXLINE);
+    memset(hostname, 0, MAXLINE);
+    memset(buf, 0, MAXLINE);
+    memset(request_to_server, 0, MAXLINE);
+    memset(server_port, 0, MAXLINE);
 
     /* parse request from client */
     if (parse_client_request(fd, src_uri, src_version, src_headers, hostname,
@@ -138,7 +137,7 @@ static void doit(int fd) {
         log_error("fetch data from server failed\n");
         return;
     }
-    log_info("fetch data from server sucess\n");
+    log_info("fetch data from server sucess read bytes %d\n",read_len);
 
     /* send data to client */
     int write_len = -1;
@@ -146,7 +145,7 @@ static void doit(int fd) {
         log_error("send data to client failed\n");
         return;
     }
-    log_info("send data to client sucess\n");
+    log_info("send data to client sucess write bytes %d\n",write_len);
 
     /* free resource */
     free(request_to_server);
@@ -172,7 +171,7 @@ static void doit(int fd) {
  */
 static int parse_client_request(int connfd, char *uri, char *version,
                                 char *headers, char *hostname, char *port) {
-    char buf[BUF_SIZE], method[BUF_SIZE];
+    char buf[MAXLINE], method[MAXLINE];
     rio_t rio;
 
     if (!uri || !version || !headers || !hostname) {
@@ -181,13 +180,13 @@ static int parse_client_request(int connfd, char *uri, char *version,
     }
 
     /* init */
-    memset(buf, 0, BUF_SIZE);
-    memset(method, 0, BUF_SIZE);
+    memset(buf, 0, MAXLINE);
+    memset(method, 0, MAXLINE);
 
     rio_readinitb(&rio, connfd);
     /* read request line and headers */
     /* GET : get uri, versoin field*/
-    if (!rio_readlineb(&rio, buf, BUF_SIZE)) {
+    if (!rio_readlineb(&rio, buf, MAXLINE)) {
         return -1;
     }
     log_debug("request line: %s\n", buf);
@@ -238,7 +237,7 @@ static inline int will_header_pass_by(char *msg) {
     return 0;
 }
 static int read_requesthdrs(rio_t *rp, char *headers) {
-    char buf[BUF_SIZE];
+    char buf[MAXLINE];
     int ret;
 
     if (headers == NULL) {
@@ -247,7 +246,7 @@ static int read_requesthdrs(rio_t *rp, char *headers) {
     }
     *headers = '\0';
 
-    while ((ret = rio_readlineb(rp, buf, BUF_SIZE)) != 0) {
+    while ((ret = rio_readlineb(rp, buf, MAXLINE)) != 0) {
         if (ret == -1) {
             log_debug("read request headers error\n");
             return -1;
@@ -387,7 +386,7 @@ static int fetch_data_from_server(char *request, size_t size, char *hostname,
     int clientfd;
     int ret, read_len;
     // char buf[MAX_OBJECT_SIZE];
-    char *buf = (char *)malloc(sizeof(char) * MAX_OBJECT_SIZE);
+    char *buf = (char *)malloc(sizeof(char) * MAXLINE);
     if (!buf) {
         log_error("allocate buffer error\n");
         return -1;
@@ -408,13 +407,13 @@ static int fetch_data_from_server(char *request, size_t size, char *hostname,
         log_debug("request to server failed\n");
         return -1;
     }
-    ret = rio_readn(clientfd, buf, MAX_OBJECT_SIZE);
+    ret = rio_readn(clientfd, buf, MAXLINE);
     if (ret == -1) {
         log_debug("read from server failed\n");
         return -1;
     }
     read_len = ret;
-    strncpy(datap, buf, read_len);
+    memcpy(datap, buf, read_len);
 
     free(buf);
     close(clientfd);

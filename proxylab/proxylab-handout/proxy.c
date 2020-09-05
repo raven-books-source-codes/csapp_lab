@@ -1,6 +1,19 @@
-#include <stdio.h>
 
-#include "csapp.h"
+
+/**
+ * @file proxy.c
+ *  一些待优化的问题:
+ *  1. 封装request结构,避免声明过多临时变量
+ *  2. 修改buf大小,目前统一分配的大小过大, 改用循环赋值的方式获取数据
+ * @author raven (zhang.xingrui@foxmail.com)
+ * @brief 
+ * @version 0.1
+ * @date 2020-09-05
+ * 
+ * @copyright Copyright (c) 2020
+ * 
+ */
+#include "log.h"
 #include "sbuf.h"
 
 /* Recommended max cache and object sizes */
@@ -12,320 +25,469 @@ static const char *user_agent_hdr =
     "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 "
     "Firefox/10.0.3\r\n";
 
-/* 宏定义 */
-#define DEBUG
-#define THREAD_NUM 1    /*  线程池中的线程数 */
-#define MAX_TASK_NUM 10 /* 最大接受的请求数 */
-#define BUF_SIZE 200    /*  BUF SIZE */
+/* macros defination */
+#define BUF_SIZE 130000
+#define HTTP_PREFIX "http://"
+#define WORKER_NUM 2
 
-/* 全局变量定义 */
-static sbuf_t task_queue; // 任务队列
-static char *proxy_port = "12345";
-static char *server_host_name = "localhost";
-static char *server_port = "12346";
+/* global vars defination */
+static sbuf_t sbuf;
 
-static int thread_pool_init(int thread_num, void *(*routine)(void *));
-static void *thread_routine(void *vargs);
-static void proxy(int connd);
-static int parse_request_args(int connfd, char *bufp);
-static char *parse_GET_url(char *line, char *hostname);
-static int fetch_data_from_server(char *host, char *port, char *args, char *bufp);
-static int send_data_to_client(int connfd, char *bufp, size_t size);
-
-/* 缓存数据 */
-static void cache(char *bufp);
+/* function declaration */
+static void doit(int fd);
+static int parse_client_request(int connfd, char *uri, char *versoin,
+                                char *headers, char *hostname, char *port);
+static int convert_request(char *src_uri, char *src_headers, char *src_version,
+                           char *dest_uri, char *dest_headers,
+                           char *dest_version);
+static int read_requesthdrs(rio_t *rp, char *headers);
+static int read_hostname_port_from_uri(char *uri, char *hostname, char *port);
+static int fetch_data_from_server(char *request, size_t size, char *hostname,
+                                  char *port, char *datap);
+static int send_data_to_client(int fd, char *datap, size_t size);
+static int create_thread_works(int num);
+static void *thread_routinue(void *vargs);
 
 int main(int argc, char const *argv[]) {
     int listenfd, connfd;
-    char hostname[MAXLINE], port[MAXLINE];
+    char proxy_port[10];
+    char client_hostname[BUF_SIZE];
+    char client_port[10];
     socklen_t clientlen;
     struct sockaddr_storage clientaddr;
 
-    clientlen = sizeof(struct sockaddr_storage);
-    thread_pool_init(THREAD_NUM, thread_routine);
-    sbuf_init(&task_queue, MAX_TASK_NUM);
+    /* init */
+    log_set_quiet(false);
+    sbuf_init(&sbuf, WORKER_NUM * 3);
+    create_thread_works(WORKER_NUM);
+
+    /* parse port from cmd */
+    if (argc != 2) {
+        fprintf(stderr, "usage: %s <port>\n", argv[0]);
+        log_error("need specify proxy port\n");
+        exit(1);
+    } else {
+        strcpy(proxy_port, argv[1]);
+    }
+
+    /* start listen */
     listenfd = Open_listenfd(proxy_port);
-
     while (1) {
+        clientlen = sizeof(clientaddr);
         connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
-#ifdef DEBUG
-        Getnameinfo((SA *)&clientaddr, clientlen, hostname, MAXLINE, port,
-                    MAXLINE, 0);
-        printf("Accepted connection from (%s, %s)\n", hostname, port);
-#endif // DEBUG
-        sbuf_insert(&task_queue, connfd);
+        Getnameinfo((SA *)&clientaddr, clientlen, client_hostname, BUF_SIZE,
+                    client_port, BUF_SIZE, 0);
+        log_info("Accepted connection from (%s, %s)\n", client_hostname,
+                 client_port);
+        /* put task into task queue */
+        sbuf_insert(&sbuf, connfd);
     }
+
     return 0;
 }
 
-/* 函数声明 */
 /**
- * @brief 线程池初始化，线程池中共 thread_num 个线程， 每个线程默认执行 routine
+ * @brief
  *
- * @param thread_num
- * @param routine
- * @return int 0 启动成功
- *             -1 启动失败
+ * @param fd
  */
-static int thread_pool_init(int thread_num, void *(*routine)(void *)) {
-    pthread_t tid = -1;
-    for (size_t i = 0; i < thread_num; i++) {
-        if (pthread_create(&tid, NULL, routine, NULL) != 0)
-            return -1;
+static void doit(int fd) {
+    char src_uri[BUF_SIZE], dest_uri[BUF_SIZE], src_version[BUF_SIZE],
+        dest_version[BUF_SIZE], src_headers[BUF_SIZE], dest_headers[BUF_SIZE],
+        hostname[BUF_SIZE], server_port[BUF_SIZE];
+    char *buf = (char *)malloc(sizeof(char) * BUF_SIZE);
+    char *request_to_server = (char *)malloc(sizeof(char) * BUF_SIZE);
+    if (!buf || !request_to_server) {
+        log_error(
+            "allocate memory for request which is sending to server faild\n");
+        return;
+    }
+
+    /* init */
+    memset(src_uri, 0, BUF_SIZE);
+    memset(src_version, 0, BUF_SIZE);
+    memset(src_headers, 0, BUF_SIZE);
+    memset(hostname, 0, BUF_SIZE);
+    memset(buf, 0, BUF_SIZE);
+    memset(request_to_server, 0, BUF_SIZE);
+    memset(server_port, 0, BUF_SIZE);
+
+    /* parse request from client */
+    if (parse_client_request(fd, src_uri, src_version, src_headers, hostname,
+                             server_port)) {
+        log_error("parse client request error\n");
+        return;
+    }
+    log_info("request: %s\n", src_uri);
+    log_info("http version: %s\n", src_version);
+    log_info("headers: %s\n", src_headers);
+    log_info("hostname: %s\n", hostname);
+
+    /* convert uri , headers, version to the uri headers version that will be
+     * send to server */
+    /* append HOSTNAME first */
+    sprintf(buf, "Host: %s\r\n", hostname);
+    strcat(src_headers, buf);
+    if (convert_request(src_uri, src_headers, src_version, dest_uri,
+                        dest_headers, dest_version)) {
+        log_error("convert request failed\n");
+        return;
+    }
+
+    /* constrcut request sending to server */
+    sprintf(buf, "GET %s %s\r\n", dest_uri, dest_version);
+    strcat(request_to_server, buf);
+    strcat(request_to_server, dest_headers);
+    strcat(request_to_server, "\r\n"); /* end of requst */
+    log_info("coneverted request to server:\n%s\n", request_to_server);
+
+    /* fetch data from server */
+    int read_len = -1;
+    if ((read_len = fetch_data_from_server(request_to_server,
+                                           strlen(request_to_server) + 1,
+                                           hostname, server_port, buf)) == -1) {
+        log_error("fetch data from server failed\n");
+        return;
+    }
+    log_info("fetch data from server sucess %d\n",read_len);
+
+    /* send data to client */
+    int write_len = -1;
+    if ((write_len = send_data_to_client(fd, buf, read_len)) == -1) {
+        log_error("send data to client failed\n");
+        return;
+    }
+    log_info("send data to client sucess %d\n",write_len);
+
+    /* free resource */
+    free(request_to_server);
+    free(buf);
+}
+
+/**
+ * @brief parse request from client
+ *        1. get origin uri, and store it into "uri"
+ *        2. get origin version, and store it into "version"
+ *        3. get origin headers, and store t into "headers"
+ *        4. extract hostname from uri, and store it into "hostname"
+ *        5. extract port from uri, and store it into "port"
+ *
+ * @param connfd
+ * @param uri
+ * @param version
+ * @param headers
+ * @param hostname
+ * @param port
+ * @return 0 sucess
+ *          -1 failed
+ */
+static int parse_client_request(int connfd, char *uri, char *version,
+                                char *headers, char *hostname, char *port) {
+    char buf[BUF_SIZE], method[BUF_SIZE];
+    rio_t rio;
+
+    if (!uri || !version || !headers || !hostname) {
+        log_debug("ethier uri, version,headers or hostname is NULL\n");
+        return -1;
+    }
+
+    /* init */
+    memset(buf, 0, BUF_SIZE);
+    memset(method, 0, BUF_SIZE);
+
+    rio_readinitb(&rio, connfd);
+    /* read request line and headers */
+    /* GET : get uri, versoin field*/
+    if (!rio_readlineb(&rio, buf, BUF_SIZE)) {
+        return -1;
+    }
+    log_debug("request line: %s\n", buf);
+    sscanf(buf, "%s %s %s", method, uri, version);
+    if (strcasecmp(method, "GET")) {
+        log_error("doest supoort other request method except GET\n");
+        return -1;
+    }
+    /* get headers */
+    if (read_requesthdrs(&rio, headers)) {
+        log_error("request headers failed\n");
+        return -1;
+    }
+    /* get hostname from uri*/
+    if (read_hostname_port_from_uri(uri, hostname, port)) {
+        log_error("get hostname port failed\n");
+        return -1;
     }
     return 0;
 }
 
 /**
- * @brief 线程执行routine
+ * @brief get headers from rp
+ *        only get headers which are not include in (Hostname, User-Agent,
+ * Connection, Proxy-Connection)
+ *
+ * @param rp
+ * @param headers
+ * @return int 0 sucess
+ *             -1 failed
+ */
+
+/* 1 pass, 0 not pass */
+static inline int will_header_pass_by(char *msg) {
+    if (!msg) return 1;
+
+    static int len1 = strlen("Host");
+    static int len2 = strlen("User-Agent");
+    static int len3 = strlen("Connection");
+    static int len4 = strlen("Proxy-Connection");
+
+    if (!strncasecmp("Host", msg, len1) ||
+        !strncasecmp("User-Agent", msg, len2) ||
+        !strncasecmp("Connection", msg, len3) ||
+        !strncasecmp("Proxy-Connection", msg, len4)) {
+        return 1;
+    }
+    return 0;
+}
+static int read_requesthdrs(rio_t *rp, char *headers) {
+    char buf[BUF_SIZE];
+    int ret;
+
+    if (headers == NULL) {
+        log_debug("header pointer is null\n");
+        return -1;
+    }
+    *headers = '\0';
+
+    while ((ret = rio_readlineb(rp, buf, BUF_SIZE)) != 0) {
+        if (ret == -1) {
+            log_debug("read request headers error\n");
+            return -1;
+        }
+        if (!strcmp(buf, "\r\n")) { /* End of request */
+            break;
+        }
+        if (will_header_pass_by(buf)) continue;
+
+        log_debug("%s\n", buf);
+        strcat(headers, buf);
+    }
+    return 0;
+}
+
+/**
+ * @brief convert src uri/headers/version to dest uri/headers/version
+ *      src: client
+ *      dest: server
+ * for example:
+ *  uri: GET http://www.cmu.edu/hub/index.html HTTP/1.1
+ *  will be converted to:
+ *       GET /hub/index.html HTTP/1.0
+ *  headers:
+ *       read the writeup of the proxylab
+ *       the following four fileds are special:
+ *       Host: www.cmu.edu
+ *       User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3)
+Gecko/20120305 Firefox/10.0.3
+ *       Connection: close
+ *      Proxy-Connection: close
+ *      other fileds will be just forward, that means we change
+ *      nothing but store it into "dest_headers"
+ * @param src_uri
+ * @param src_headers
+ * @param src_version
+ * @param dest_uri
+ * @param dest_headers
+ * @param dest_version
+ * @return int 0 sucecss
+ *              -1 failed
+ */
+static int convert_request(char *src_uri, char *src_headers, char *src_version,
+                           char *dest_uri, char *dest_headers,
+                           char *dest_version) {
+    char *p = src_uri;
+
+    if (!src_uri || !src_headers || !src_version || !dest_uri ||
+        !dest_headers || !dest_version) {
+        log_debug("convert request params have nullptr\n");
+        return -1;
+    }
+
+    /* src uri --> dest uri */
+    if (strncasecmp(HTTP_PREFIX, src_uri, strlen(HTTP_PREFIX))) {
+        log_debug("uri not start with http://\n");
+        return -1;
+    }
+    p += strlen("http://");
+    while (*p != '\0' && *p != '/') { /* looking for next backslash */
+        p++;
+    }
+    strcpy(dest_uri, p);
+    p = NULL;
+
+    /* src_headers --> dest_headers */
+    strcpy(dest_headers, src_headers);
+    /* append USER-AGENT CONNECTION PROXY-CONNECT */
+    strcat(dest_headers, user_agent_hdr);
+    strcat(dest_headers, "Connection: Close\r\n");
+    strcat(dest_headers, "Proxy-Connection: close\r\n");
+
+    /* src version --> dest verison HTTP/1.1 --> HTTP/1.0*/
+    strcpy(dest_version, src_version);
+    int version_len = strlen(dest_version);
+    if (dest_version[version_len - 1] == '1') {
+        dest_version[version_len - 1] = '0';
+    }
+    return 0;
+}
+
+/**
+ * @brief read hostname  and portfrom uri, and store it to "hostname" "port"
+ *
+ * @param uri
+ * @param hostname
+ * @param port
+ * @return int 0 sucess, -1 failed
+ */
+static int read_hostname_port_from_uri(char *uri, char *hostname, char *port) {
+    char *start = NULL, *end = NULL;
+    int len = strlen(HTTP_PREFIX);
+    if (!uri || !hostname || !port) {
+        log_debug("uri or hostname is NULL\n");
+        return -1;
+    }
+
+    /* default port */
+    strcpy(port, "80");
+    /* do extract hoasname */
+    if (strncasecmp(HTTP_PREFIX, uri, len)) {
+        log_debug("uri not start with http://");
+        return -1;
+    }
+
+    start = uri + len;
+    end = start;
+    while (*end != '/') {
+        if (*end == ':') { /* set server port */
+            char *p = NULL;
+            p = strstr(end, "/");
+            strncpy(port, end + 1, p - end - 1);
+            port[p - end - 1] = '\0';
+            break;
+        } /* in case of "http://www.baidu.com:8080/xxx" */
+        end++;
+    }
+    strncpy(hostname, start, end - start);
+    log_debug("hostname: %s\n", hostname);
+    log_debug("server port: %s\n", port);
+    return 0;
+}
+
+/**
+ * @brief fetch data from server
+ *
+ * @param request request, containg request line(GET http://xx) and headers
+ * @param size requst string len
+ * @param hostname
+ * @param port
+ * @param datap data return from server
+ * @return int sucess read len (>=0)
+ *             failed -1
+ */
+static int fetch_data_from_server(char *request, size_t size, char *hostname,
+                                  char *port, char *datap) {
+    int clientfd;
+    int ret, read_len;
+    // char buf[MAX_OBJECT_SIZE];
+    char *buf = (char *)malloc(sizeof(char) * BUF_SIZE);
+    if (!buf) {
+        log_error("allocate buffer error\n");
+        return -1;
+    }
+
+    if (!request || !datap || !hostname || !port) {
+        log_debug("request is null or datap is null\n");
+        return -1;
+    }
+
+    clientfd = open_clientfd(hostname, port);
+    if (clientfd == -1 || clientfd == -2) {
+        log_debug("open clientfd failed\n");
+        return -1;
+    }
+    ret = rio_writen(clientfd, request, size);
+    if (ret == -1) {
+        log_debug("request to server failed\n");
+        return -1;
+    }
+    ret = rio_readn(clientfd, buf, BUF_SIZE);
+    if (ret == -1) {
+        log_debug("read from server failed\n");
+        return -1;
+    }
+    read_len = ret;
+    memcpy(datap, buf, read_len);
+
+    free(buf);
+    close(clientfd);
+    return read_len;
+}
+
+/**
+ * @brief send data which comes from server to client.
+ *
+ * @param fd connect fd to client
+ * @param datap
+ * @param size data size
+ * @return int sucess write len
+ *             failed -1
+ */
+static int send_data_to_client(int fd, char *datap, size_t size) {
+    int ret;
+    if (fd < 0 || !datap) {
+        log_debug("params error\n");
+        return -1;
+    }
+
+    ret = rio_writen(fd, datap, size);
+    if (ret == -1) {
+        log_debug("send to client error\n");
+        return -1;
+    }
+    return ret;
+}
+
+/**
+ * @brief Create num thread works object
+ *
+ * @param num thread num
+ * @return int 0 sucess
+ *             -1 failed
+ */
+static int create_thread_works(int num) {
+    pthread_t tid;
+    for (size_t i = 0; i < num; i++) {
+        if (pthread_create(&tid, NULL, thread_routinue, NULL)) {
+            log_debug("create thread work failed\n");
+            return -1;
+        }
+    }
+    return 0;
+}
+
+/**
+ * @brief thread worker do the right thing!
  *
  * @param vargs
  * @return void*
  */
-static void *thread_routine(void *vargs) {
-    /* 进入detach模式，防止内存泄漏 */
+static void *thread_routinue(void *vargs) {
+    int connfd;
     pthread_detach(pthread_self());
-    int connfd = -1;
 
     while (1) {
-        connfd = sbuf_remove(&task_queue);
-        proxy(connfd);
-        Close(connfd);
+        connfd = sbuf_remove(&sbuf);
+        doit(connfd);
+        close(connfd);
     }
     return NULL;
-}
-
-/**
- * @brief proxy线程工作函数，完成所有代理线程的工作。包括：
- * 1. 客户请求字符参数获取
- * 2. 请求参数解析
- * 3. 从server中获取数据并发挥给client
- *
- * @param connd 与client连接后的fd
- */
-static void proxy(int connd) {
-    int ret;
-    char serverargs[BUF_SIZE];
-    char *databuf = (char *)malloc(sizeof(char) * MAX_OBJECT_SIZE);
-    int read_len;
-    if (databuf == NULL) {
-        printf("run out of memory\n");
-        return;
-    }
-
-    /* parse request args */
-    ret = parse_request_args(connd, serverargs);
-    if (ret == -1) {
-        printf("parse request args failed\n");
-        return;
-    }
-#ifdef DEBUG
-    printf("converted args\n%s\n", serverargs);
-#endif // DEBUG
-
-    /* fetch data from server */
-    ret = fetch_data_from_server(server_host_name, server_port, serverargs,
-                                 databuf);
-    if (ret == -1) {
-        printf("fetch data from server failed\n");
-        return;
-    }
-    read_len = ret;
-#ifdef DEBUG
-    printf("fetch data from server success\n");
-#endif
-
-    /* send data to client */
-    ret = send_data_to_client(connd, databuf, read_len);
-    if (ret == -1) {
-        printf("send data to client failed\n");
-        return;
-    }
-#ifdef DEBUG
-    printf("send data to client success\n");
-#endif
-
-    free(databuf);
-    return;
-}
-
-/**
- * @brief
- * 获取并解析请求参数字符串，忽略不必要headers，转换为可向server转发的请求参数，将结果保存到buf中
- *
- * @param connfd
- * @param bufp 将转换后的字符串存放到buf中
- *             转换成功： bufp存放正确字符串    return 0
- *             转换失败： return -1
- *             失败场景：args无效，如无GET关键字
- * @return 0 success
- *         -1 failed
- */
-static int parse_request_args(int connfd, char *serverbuf) {
-    if (serverbuf == NULL || connfd == -1) {
-        return -1;
-    }
-
-    char line[BUF_SIZE];
-    char tempbuf[BUF_SIZE];
-    char hostname[40]; /* 主机名 */
-    char *tempptr;
-    int ret;
-    rio_t rio;
-
-    memset(line, 0, sizeof(line) / sizeof(char));
-    memset(tempbuf, 0, sizeof(tempbuf) / sizeof(char));
-    memset(hostname, 0, sizeof(hostname) / sizeof(char));
-    /* 解析客户端字符串 */
-    while ((ret = rio_readlineb(&rio, line, MAXLINE)) != 0) {
-        if (ret == -1) {
-            return -1;
-        }
-        
-        if(!strcmp(line,"\r\n")){   /* 结束条件 */
-            break;
-        }
-
-#ifdef DEBUG
-        printf("receive data from client linenumber %d %s\n",__LINE__, line);
-#endif // DEBUG
-        char *p = line;
-        while (*p == ' ') /* skip head space */
-            p++;
-
-        if (!strncasecmp(p, "GET", 3)) { /* GET */
-            tempptr = parse_GET_url(line, hostname);
-            if (!tempptr) { /* 解析GET字符串不成功 */
-                return -1;
-            }
-            strcpy(serverbuf, tempptr); /* 填充GET */
-            strcat(serverbuf, "\r\n");
-        }else if (!strncasecmp(p,"Host:", 5) ||                         /* 这些固定字段忽略 */
-                    !strncasecmp(p,"User-Agent:", 11) ||
-                    !strncasecmp(p,"Connection:",11)    ||
-                    !strncasecmp(p,"Proxy-Connection:",17)){
-#ifdef DEBUG
-            printf("linenumber %d ignore %s\n", __LINE__, p);
-#endif // DEBUG
-            continue;
-        } else {
-#ifdef DEBUG
-            printf("linenumber %d not ignore %s\n", __LINE__, p);
-#endif // DEBUG
-            strcpy(serverbuf, p);       /* 其他字段,直接forward */
-        }
-    }
-    free(tempptr);
-
-    /* 填充writeup中说的一些固定字段 */
-    sprintf(tempbuf, "Host: %s\r\n", hostname); /* HOST: */
-    strcat(serverbuf, tempbuf);
-    strcat(serverbuf, user_agent_hdr);          /* User-Agent */
-    strcat(serverbuf, "Connection: close\r\n"); /* Connection: close */
-    strcat(serverbuf, "Proxy-Connection: close\r\n");
-    serverbuf[strlen(serverbuf)] = '\0';
-    return 0;
-}
-
-/**
- * @brief 解析client端的GET请求行，只解析 “GET xxx“， 保存 "hostname字段" 到
- hostname中
- *
- * @param line 输入字符串
- * @param hostname 保存hostname的buf
- * @return  sucecss char* 解析后的字符传
- *          失败: NULL
- * example:
- *  输入: GET http://www.cmu.edu/hub/index.html HTTP/1.1
-    返回: GET /hub/index.html HTTP/1.0
- */
-static char *parse_GET_url(char *line, char *hostname) {
-    if (line == NULL || hostname == NULL) {
-        return NULL;
-    }
-
-    size_t len = strlen(line);
-    char *cstr = (char *)malloc(sizeof(char) * len);
-    if (cstr == NULL) {
-        return NULL;
-    }
-
-    line = line + 4;                   /* skip "GET+one space" */
-    if (strncasecmp(line, "http://", 7)) { /* only support http */
-        return NULL;
-    }
-    line = line + 7; /* 指向 "http://"的后一位 */
-
-    /* parse host name */
-    char *start = line;
-    char *end = start;
-    while (*line != '/') {
-        if (*line == ':') { /* 适应 http://www.baidu.com:8080/index.html 的情况 */
-            end = line;
-        }
-        line++;
-    }
-    if (end == start)
-        end = line;
-
-    strncpy(hostname, start, (size_t)(end - start));
-    hostname[strlen(hostname)] = '\0';
-#ifdef DEBUG
-    printf("linenumber:%d hostname: %s\n", __LINE__, hostname);
-#endif // DEBUG
-
-    /* 拼接转换后的字符串 */
-    strcpy(cstr, "GET ");
-    strcat(cstr, line);
-    len = strlen(cstr);
-    if (cstr[len - 3] == '1') { /* HTTP/1.1 --> HTTP/1.0 */
-        cstr[len - 3] = '0';
-    }
-    cstr[len - 2] = '\0';
-    return cstr;
-}
-
-/**
- * @brief 传递参数args 给 server端(host:port) 并获取数据，结果存放于buf中
- *
- * @param host host name
- * @param port host port
- * @param args 传递给server的参数
- * @param bufp 结果保存
- *
- * @return      成功     获取数据的字节数
- *              失败    -1
- */
-static int fetch_data_from_server(char *host, char *port, char *args,
-                                  char *bufp) {
-    int clientfd;
-    int recv_len;
-
-    clientfd = Open_clientfd(host, port);
-    if (rio_writen(clientfd, args, strlen(args) + 1) == -1) {
-        goto close_fd;
-    }
-    recv_len = rio_readn(clientfd, bufp, MAX_OBJECT_SIZE);
-    if (recv_len == -1) {
-        goto close_fd;
-    }
-
-    return recv_len; /* sucess */
-
-close_fd: /* failed */
-    close(clientfd);
-    return -1;
-}
-
-/**
- * @brief
- *
- * @param connfd
- * @param bufp
- * @param size
- * @return int 成功： 发送了多少字节
- *             失败: -1
- */
-static int send_data_to_client(int connfd, char *bufp, size_t size) {
-    return rio_writen(connfd, bufp, size);
 }
