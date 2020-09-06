@@ -42,6 +42,7 @@ static int evict(cache *cp)
  */
 int cache_init(cache *cp)
 {
+    if(!cp) return -1;
     /* cache_get cache item pair_num */
     const int ci_num = MAX_CACHE_SIZE / MAX_OBJECT_SIZE;
     cp->ci = (cache_item *) malloc(sizeof(cache_item) * ci_num);
@@ -78,7 +79,7 @@ int cache_put(cache *cp, char *key, char *data, size_t size)
     
     /* increment age counter */
     age_counter++;
-    /* first try to an empty block */
+    /* first try to find an empty block */
     for (size_t i = 0; i < cp->ci_num; i++) {
         if (cp->ci[i].effect_size == 0) {
             empty_block_idx = i;

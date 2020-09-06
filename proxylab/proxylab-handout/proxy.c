@@ -1,5 +1,3 @@
-
-
 /**
  * @file proxy.c
  *  一些待优化的问题:
@@ -43,6 +41,7 @@ static int convert_request(char *src_uri, char *src_headers, char *src_version,
                            char *dest_uri, char *dest_headers,
                            char *dest_version);
 
+        return -1;
 static int read_requesthdrs(rio_t *rp, char *headers);
 
 static int read_hostname_port_from_uri(char *uri, char *hostname, char *port);
@@ -52,7 +51,7 @@ static int fetch_data_from_server(char *request, size_t size, char *hostname,
 
 static int send_data_to_client(int fd, char *datap, size_t size);
 
-static int create_thread_works(int num);
+static int create_thread_workers(int num);
 
 static void *thread_routinue(void *vargs);
 
@@ -69,7 +68,7 @@ int main(int argc, char const *argv[])
     log_set_level(LOG_INFO);
     sbuf_init(&sbuf, WORKER_NUM * 3);
     cache_init(&mycache);
-    create_thread_works(WORKER_NUM);
+    create_thread_workers(WORKER_NUM);
     
     /* parse port from cmd */
     if (argc != 2) {
@@ -89,7 +88,7 @@ int main(int argc, char const *argv[])
                     client_port, BUF_SIZE, 0);
         log_info("Accepted connection from (%s, %s)\n", client_hostname,
                  client_port);
-        /* cache_put task into task queue */
+        /* put task into task queue */
         sbuf_insert(&sbuf, connfd);
     }
     
@@ -498,7 +497,7 @@ static int send_data_to_client(int fd, char *datap, size_t size)
  * @return int 0 sucess
  *             -1 failed
  */
-static int create_thread_works(int num)
+static int create_thread_workers(int num)
 {
     pthread_t tid;
     for (size_t i = 0; i < num; i++) {
