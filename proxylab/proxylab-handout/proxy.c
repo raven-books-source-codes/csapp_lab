@@ -66,7 +66,7 @@ int main(int argc, char const *argv[])
     struct sockaddr_storage clientaddr;
     
     /* init */
-    log_set_level("INFO");
+    log_set_level(LOG_INFO);
     sbuf_init(&sbuf, WORKER_NUM * 3);
     cache_init(&mycache);
     create_thread_works(WORKER_NUM);
